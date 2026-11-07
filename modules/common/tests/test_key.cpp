@@ -413,3 +413,61 @@ TEST_CASE("key: micro-benchmark — push 3 minutes of 96 kHz mono (report only)"
     std::printf("[bench] KeyDetector push 3 min of 96 kHz mono: %.3f s (report only)\n", seconds);
     CHECK(det.result().valid);
 }
+
+// ---- estimated tuning ----
+
+namespace {
+
+struct TunedScore {
+    int failures = 0;
+    double worstOffsetError = 0.0;
+};
+
+TunedScore scoreAllKeys(double a4, const KeyConfig& config) {
+    TunedScore score;
+    for (int root = 0; root < 12; ++root) {
+        for (const bool minor : {false, true}) {
+            const KeyResult r = detect(kFs, progression(kFs, kC3 + root, minor, a4), config);
+            const bool right = r.valid && r.confident && r.root == root &&
+                               r.mode == (minor ? KeyMode::Minor : KeyMode::Major);
+            if (!right)
+                ++score.failures;
+            const double truth = 1200.0 * std::log2(a4 / 440.0);
+            score.worstOffsetError =
+                std::max(score.worstOffsetError, std::abs(static_cast<double>(r.tuningOffsetCents) - truth));
+        }
+    }
+    return score;
+}
+
+} // namespace
+
+TEST_CASE("KeyDetector finds all 24 keys when the recording isn't at A = 440") {
+    for (const double a4 : {452.0, 428.0}) {
+        const TunedScore score = scoreAllKeys(a4, KeyConfig{});
+        CAPTURE(a4);
+        CHECK(score.failures == 0);
+        CHECK(score.worstOffsetError <= 2.0);
+    }
+}
+
+TEST_CASE("A fixed tuning of 440 fails on an off-tune recording, so the test above proves the estimator") {
+    KeyConfig fixed;
+    fixed.tuning = Tuning{440.0};
+    CHECK(scoreAllKeys(452.0, fixed).failures > 0);
+
+    const KeyResult r = detect(kFs, progression(kFs, kC3, false, 452.0), fixed);
+    CHECK_FALSE(r.tuningEstimated);
+    CHECK(r.tuningOffsetCents == 0.0f);
+}
+
+TEST_CASE("A fixed tuning that matches the recording finds the key") {
+    KeyConfig fixed;
+    fixed.tuning = Tuning{452.0};
+    const KeyResult r = detect(kFs, progression(kFs, kC3 + 5, true, 452.0), fixed);
+    CHECK(r.confident);
+    CHECK(r.root == 5);
+    CHECK(r.mode == KeyMode::Minor);
+    CHECK_FALSE(r.tuningEstimated);
+    CHECK(r.tuningOffsetCents == doctest::Approx(Tuning{452.0}.offsetCents()).epsilon(1e-4));
+}
