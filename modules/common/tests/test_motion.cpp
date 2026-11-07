@@ -32,7 +32,7 @@ using dsptb::spatial::fromSpherical;
 using dsptb::spatial::orbitPosition;
 using dsptb::spatial::toSpherical;
 
-// Real-time entry points must be noexcept (spec §5); pin it at compile time.
+// Real-time entry points must be noexcept; pin it at compile time.
 static_assert(noexcept(fromSpherical(std::declval<const Spherical&>())));
 static_assert(noexcept(toSpherical(std::declval<const Vec3&>())));
 static_assert(noexcept(orbitPosition(std::declval<const OrbitParams&>(), 0.0)));

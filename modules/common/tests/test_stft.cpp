@@ -91,7 +91,7 @@ TEST_CASE("stft: 1 kHz sine at -6 dBFS peaks at 1 kHz within tolerance (Hann and
             if (window == Window::BlackmanHarris) {
                 CHECK(std::abs(peakDb - (-6.0)) <= 0.5);
             } else {
-                // Maintainer ruling on issue #7: keep the non-bin-centred
+                // keep the non-bin-centred
                 // 1 kHz tone and widen the Hann tolerance to +/-0.75 dB.
                 // 1 kHz is 1/3 bin off-centre, so the periodic Hann window's
                 // 0.63 dB scalloping loss makes the §4.2 value about
@@ -346,7 +346,7 @@ TEST_CASE("stft: micro-benchmark 4096/1024 (report only, budget 60 us per frame)
     const auto stop = std::chrono::steady_clock::now();
     const double totalUs = std::chrono::duration<double, std::micro>(stop - start).count();
     const double usPerFrame = totalUs / static_cast<double>(frames);
-    std::printf("[bench] StftAnalyzer 4096/1024: %.2f us per frame over %zu frames (spec budget: 60 us)\n",
+    std::printf("[bench] StftAnalyzer 4096/1024: %.2f us per frame over %zu frames (budget: 60 us)\n",
                 usPerFrame, frames);
     CHECK(frames == static_cast<std::size_t>(kRounds) * 257u);
     CHECK(usPerFrame > 0.0);

@@ -7,7 +7,7 @@
 namespace dsptb::dsp {
 namespace {
 
-// Grey is linear by definition (spec §4.4), so its table is built at compile
+// Grey is linear by definition, so its table is built at compile
 // time instead of being generated: entry i packs (i, i, i, 255).
 constexpr std::array<std::uint32_t, 256> makeGreyLut() noexcept {
     std::array<std::uint32_t, 256> lut{};

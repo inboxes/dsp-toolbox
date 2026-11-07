@@ -117,7 +117,7 @@ TEST_CASE("colormapRgba clamps t and returns the nearest LUT entry") {
 }
 
 TEST_CASE("CIE L* of the RGBA8 tables is monotonic up to 8-bit quantisation") {
-    // Maintainer ruling on issue #9: the strict L* criterion was written for
+    // the strict L* criterion was written for
     // the continuous data and does not survive round(255*c) quantisation
     // (Viridis gains byte-identical neighbours — entries 112/113 are both
     // (38,130,142) and 129/130 are both (32,146,140) — so no function of the

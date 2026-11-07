@@ -156,7 +156,7 @@ TEST_CASE("onset: invalid configurations are rejected") {
     bad.medianFrames = 0;
     CHECK_THROWS_AS(SpectralFluxOnset(kFs, bad), std::invalid_argument);
     bad = good;
-    bad.medianFrames = 64; // spec §4.7: M <= 63
+    bad.medianFrames = 64; // M <= 63
     CHECK_THROWS_AS(SpectralFluxOnset(kFs, bad), std::invalid_argument);
     bad = good;
     bad.compression = 0.0f;
@@ -333,7 +333,7 @@ TEST_CASE("onset: setSensitivity with an extreme lambda suppresses the clicks") 
     // values the threshold is ~50x the noise median. The single event that
     // remains is the frame-0 stream-start transient — the causal median is
     // still empty there, so theta_0 = delta whatever lambda is (the same
-    // reason the spec's sine criterion tolerates onsets in the first
+    // reason the sine criterion tolerates onsets in the first
     // 100 ms).
     CHECK(r.events.size() <= 1u);
     if (!r.events.empty())

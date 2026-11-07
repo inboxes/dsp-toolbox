@@ -1,7 +1,6 @@
 #pragma once
 
-// YinPitch: streaming YIN fundamental-frequency (f0) estimator
-//.
+// YinPitch: streaming YIN fundamental-frequency (f0) estimator.
 //
 // A. de Cheveigné & H. Kawahara, "YIN, a fundamental frequency estimator
 // for speech and music", JASA 111(4), 2002. The difference function is

@@ -8,7 +8,7 @@
 // Quality mode is TD-PSOLA (Moulines & Charpentier, 1990): pitch marks
 // one period apart, grains of two periods overlap-added at synthesis
 // marks spaced T0/ratio, normalised by the window sum. Two streaming
-// details matter for the spec's identity test (ratio = 1 must reproduce
+// details matter for the identity test (ratio = 1 must reproduce
 // the delayed input):
 //   * synthesis positions walk the analysis marks themselves: a
 //     fractional mark index advances by 1/ratio per grain and positions
@@ -209,7 +209,7 @@ float PsolaShifter::liveSample() noexcept {
 }
 
 int PsolaShifter::jumpLength(double t0) const noexcept {
-    // min(T0/2, 2 ms) per spec §4.11, at least one sample.
+    // min(T0/2, 2 ms), at least one sample.
     const double ms2 = 0.002 * sampleRate_;
     const double len = std::min(0.5 * t0, ms2);
     const long long samples = std::llround(len);

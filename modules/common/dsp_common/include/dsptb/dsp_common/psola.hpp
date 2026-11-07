@@ -1,7 +1,6 @@
 #pragma once
 
-// PsolaShifter: real-time pitch shifter for a single voice
-//.
+// PsolaShifter: real-time pitch shifter for a single voice.
 //
 // Two modes. Live is pitch-synchronous resampling with about 1 ms of fixed
 // delay (the singer hears this one; formants move with the pitch, which is
@@ -46,7 +45,7 @@ struct PsolaConfig {
 // [minHz, maxHz] (or otherwise untrustworthy) should pass f0Hz <= 0
 // (unvoiced) for those blocks instead; gating is the caller's job.
 //
-// Behaviour common to both modes (spec §4.11):
+// Behaviour common to both modes:
 // - Unvoiced: the output is the input delayed by exactly latencyFrames().
 // - Voiced <-> unvoiced changes crossfade over crossfadeMs between the
 //   shifted path and the delayed input, so there are no clicks.
@@ -82,7 +81,7 @@ struct PsolaConfig {
 // synthesis mark. The output is normalised by the accumulated window
 // sum; where that sum is below 1e-3 the delayed input sample is used.
 // Two refinements keep the ratio = 1 output identical to the delayed
-// input (the spec's -40 dB identity test): the synthesis positions
+// input (the -40 dB identity test): the synthesis positions
 // walk the analysis marks themselves (a fractional mark index advances
 // by 1/ratio per grain and positions interpolate between adjacent
 // marks), so at ratio = 1 every synthesis mark coincides with an

@@ -15,13 +15,13 @@
 namespace dsptb::dsp {
 namespace {
 
-// Krumhansl & Kessler (1982) key profiles, index 0 = tonic (spec §4.10).
+// Krumhansl & Kessler (1982) key profiles, index 0 = tonic.
 constexpr std::array<double, 12> kMajorProfile = {6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
                                                   2.52, 5.19, 2.39, 3.66, 2.29, 2.88};
 constexpr std::array<double, 12> kMinorProfile = {6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
                                                   2.54, 4.75, 3.98, 2.69, 3.34, 3.17};
 
-// Peak floor (maintainer ruling on issue #30): a spectral peak whose
+// Peak floor: a spectral peak whose
 // magnitude is below this fraction of the frame's largest peak
 // (1% = -40 dB) contributes nothing, so Hann sidelobes and noise-floor
 // ripple do not add chroma.
@@ -124,7 +124,7 @@ std::size_t extractFramePeaks(const float* power, std::size_t bins, double binHz
 
 StftConfig KeyDetector::effectiveStftConfig(double sampleRate, const KeyConfig& config) {
     // Validate the configured values as given, before scaling
-    // (maintainer ruling on issue #30).
+    //.
     if (config.fftSize < 32 || config.fftSize > 65536 ||
         (config.fftSize & (config.fftSize - 1)) != 0)
         throw std::invalid_argument("KeyDetector: fftSize must be a power of two in [32, 65536]");
@@ -178,8 +178,8 @@ void KeyDetector::reset() noexcept {
 void KeyDetector::push(const float* mono, std::size_t n) noexcept {
     // pushPower hands over the raw power spectrum |X_k|^2 of each
     // Hann-windowed frame. The chroma accumulates the frame's spectral
-    // peaks in double precision (peak-aware chroma: maintainer ruling
-    // on issue #30, option A — see detail::extractFramePeaks), each
+    // peaks in double precision (peak-aware chroma, see
+    // detail::extractFramePeaks), each
     // folded in by the pitch-class formula applied to its interpolated
     // frequency:
     //   pc = (round(12 * log2(f / 440)) + 9) mod 12   (so C = 0, A = 9)
@@ -220,7 +220,7 @@ KeyResult KeyDetector::result() const noexcept {
     double total = 0.0;
     for (const double value : chroma_)
         total += value;
-    // Spec §4.10: valid = false when fewer than 2 frames were analysed
+    // valid = false when fewer than 2 frames were analysed
     // or the total chroma energy is below 1e-6.
     out.valid = frames_ >= 2 && total >= 1e-6;
     if (!out.valid)
@@ -250,7 +250,7 @@ KeyResult KeyDetector::result() const noexcept {
         }
     }
 
-    // Margin (spec §4.10): relative keys share their notes, so confusing
+    // Margin: relative keys share their notes, so confusing
     // them does not matter for tuning — the margin is the winner's r
     // minus the best other r EXCLUDING the winner's relative key
     // (major root r -> minor (r + 9) mod 12; minor root r -> major

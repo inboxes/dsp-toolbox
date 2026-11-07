@@ -22,7 +22,7 @@ constexpr double kMinusInfinity = -std::numeric_limits<double>::infinity();
 
 // libebur128 reports "no energy" as -HUGE_VAL, which is -infinity on IEEE
 // platforms but a finite huge negative where HUGE_VAL is DBL_MAX. Map every
-// such sentinel (and any NaN, defensively) to -infinity (spec §4.3).
+// such sentinel (and any NaN, defensively) to -infinity.
 double mapLoudness(double value) noexcept {
     if (std::isnan(value) || value <= -1e30)
         return kMinusInfinity;
@@ -188,7 +188,7 @@ void LoudnessMeter::reset() {
 
 namespace {
 
-// Samples between exact running-sum recomputes (spec §4.3: every 2^16).
+// Samples between exact running-sum recomputes.
 constexpr std::size_t kRecomputeInterval = std::size_t{1} << 16;
 
 std::size_t windowSamplesFor(double sampleRate, double rmsWindowMs) {

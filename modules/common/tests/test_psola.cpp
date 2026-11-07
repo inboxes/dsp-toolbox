@@ -147,7 +147,7 @@ TEST_CASE("psola: latency bounds at 44.1/48/96 kHz") {
         std::printf("[psola] fs %.0f: Quality latency %zu (aim %zu, bound %zu)\n", fs,
                     qual.latencyFrames(), qAim, qBound);
         CHECK(qual.latencyFrames() <= qBound);
-        CHECK(qual.latencyFrames() == qAim); // one period of minHz, the spec's aim
+        CHECK(qual.latencyFrames() == qAim); // one period of minHz, the aim
     }
 }
 
@@ -731,7 +731,7 @@ TEST_CASE("psola: micro-benchmarks (report only; budgets Live 10 us, Quality 20 
         const double usPerCall =
             std::chrono::duration<double, std::micro>(t1 - t0).count() / calls;
         std::printf("[bench] PsolaShifter %s: %.2f us per 256 voiced frames at 48 kHz "
-                    "(spec budget: %s us)\n",
+                    "(budget: %s us)\n",
                     mode == PsolaMode::Live ? "Live" : "Quality", usPerCall,
                     mode == PsolaMode::Live ? "10" : "20");
         CHECK(std::isfinite(sink)); // the benchmark actually ran

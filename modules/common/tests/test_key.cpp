@@ -1,4 +1,4 @@
-// KeyDetector tests plus the root an
+// KeyDetector tests. The "progression" test signal: each chord is root, third, fifth and the root an
 // octave lower, each at amplitude 0.1, built with sine() from
 // tests/support/signals.hpp. Major keys use I-IV-V-I, minor keys use
 // i-iv-V-i (major V), each played twice; roots range from C3 to B3.
@@ -245,7 +245,7 @@ TEST_CASE("key: one sustained A-major triad for 5 s gives root A, mode major") {
 }
 
 TEST_CASE("key: at 96 kHz the Eb3 peak of the C-minor chord is estimated within 2 Hz") {
-    // Maintainer ruling on issue #30: with fftSize scaled x2 at 96 kHz
+    // with fftSize scaled x2 at 96 kHz
     // (16384, hop 8192), C3 and Eb3 sit ~4.2 bins apart instead of
     // ~2.1, so the 3-point log-parabola estimate of Eb3 in the C-minor
     // tonic chord must land within 2 Hz of 155.56 Hz in every frame.
@@ -316,7 +316,7 @@ TEST_CASE("key: sample rates 44.1, 48 and 96 kHz give the same answers") {
 
 TEST_CASE("key: full 24x3 matrix — every progression exact and confident at 44.1, 48 and 96 kHz") {
     // The maintainer asked for the full matrix as committed CHECKs
-    // (issue #30): the per-rate case above samples only a few keys, and
+    //: the per-rate case above samples only a few keys, and
     // the 72-run matrix was originally verified as a one-off probe.
     // This case pins every coordinate — including C minor at 96 kHz,
     // the failure the rate scaling fixes — against regression.
@@ -418,7 +418,7 @@ TEST_CASE("key: micro-benchmark — push 3 minutes of 48 kHz mono (report only)"
     det.push(signal.data(), signal.size());
     const auto stop = std::chrono::steady_clock::now();
     const double seconds = std::chrono::duration<double>(stop - start).count();
-    std::printf("[bench] KeyDetector push 3 min of 48 kHz mono: %.3f s (spec budget: <= 1 s)\n", seconds);
+    std::printf("[bench] KeyDetector push 3 min of 48 kHz mono: %.3f s (budget: <= 1 s)\n", seconds);
     CHECK(det.result().valid);
 }
 

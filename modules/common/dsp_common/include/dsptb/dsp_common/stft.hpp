@@ -1,7 +1,6 @@
 #pragma once
 
-// StftAnalyzer: streaming short-time Fourier transform
-//.
+// StftAnalyzer: streaming short-time Fourier transform.
 
 #include <dsptb/dsp_common/fft.hpp>
 

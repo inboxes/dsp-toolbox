@@ -6,7 +6,7 @@
 // References: C. Krumhansl, "Cognitive Foundations of Musical Pitch"
 // (Oxford University Press, 1990); S. Pauws, "Musical Key Extraction
 // from Audio", ISMIR 2004. The key profiles are Krumhansl & Kessler
-// (1982), as tabulated in the spec.
+// (1982).
 
 #include <dsptb/dsp_common/stft.hpp>
 
@@ -78,11 +78,8 @@ std::size_t extractFramePeaks(const float* power, std::size_t bins, double binHz
 // called at any time (the consumer calls it every 2 s while audio is
 // pushed, and once at the end of a file).
 //
-// Framing reuses StftAnalyzer::pushPower with a Hann window (spec §4.2);
-// the profiles, margin rule and validity rule are spec §4.10 verbatim.
-// The chroma accumulation is peak-aware (maintainer ruling on issue
-// #30, option A, superseding §4.10's per-bin fold — the spec text will
-// be updated to match): in each frame, a magnitude bin contributes only
+// Framing reuses StftAnalyzer::pushPower with a Hann window;
+// The chroma accumulation is peak-aware: in each frame, a magnitude bin contributes only
 // when it is a strict local maximum of S_k = sqrt(P_k); its frequency
 // and magnitude are refined by parabolic interpolation on the
 // log-magnitude, the [minHz, maxHz] test and the pitch-class formula
@@ -90,8 +87,7 @@ std::size_t extractFramePeaks(const float* power, std::size_t bins, double binHz
 // frame's largest peak (-40 dB) are ignored so Hann sidelobes and
 // noise-floor ripple do not add chroma.
 //
-// The configured fftSize and hop are values at 48 kHz (maintainer
-// ruling on issue #30): the constructor multiplies both by
+// The configured fftSize and hop are values at 48 kHz: the constructor multiplies both by
 // s = 2^round(log2(sampleRate / 48000)) — x1 at 44.1 and 48 kHz, x2 at
 // 96 kHz, x4 at 192 kHz — so the frequency resolution in Hz per bin is
 // the same at every sample rate. (At a fixed size in samples the bin

@@ -26,7 +26,7 @@ double melLogStep() noexcept {
 
 // --- Scale helpers ----------------------------------------------------------
 // A scale is a monotone map Hz -> axis coordinate and back. Row edges are
-// evenly spaced in axis coordinates (spec §4.5).
+// evenly spaced in axis coordinates.
 
 double hzToScale(FreqScale scale, double hz) noexcept {
     switch (scale) {
@@ -167,7 +167,7 @@ void BinToRowMap::apply(const float* binDb, float* rowDb) const noexcept {
             rowDb[row] = best;
         } else if (info.interpBin + 1 < bins_) {
             // Row narrower than a bin: interpolate the dB linearly
-            // between the two bins around the row centre (spec §4.5).
+            // between the two bins around the row centre.
             const double frac = info.interpFrac;
             const double lo = static_cast<double>(binDb[info.interpBin]);
             const double hi = static_cast<double>(binDb[info.interpBin + 1]);
