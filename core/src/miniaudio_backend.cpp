@@ -4,6 +4,10 @@
 
 #include <miniaudio.h>
 
+#include <Windows.h>
+
+#include <audioclient.h>
+
 #include <chrono>
 #include <cstdio>
 #include <cstring>
@@ -12,6 +16,27 @@
 namespace dsptb {
 
 namespace {
+
+// The smallest shared-mode period Windows 10+ offers this device (IAudioClient3), for Audio Settings. 0 on older
+// systems and drivers without it.
+uint32_t sharedModeMinPeriod(void* audioClient) {
+    if (!audioClient)
+        return 0;
+    IAudioClient3* client = nullptr;
+    if (FAILED(static_cast<IAudioClient*>(audioClient)->QueryInterface(__uuidof(IAudioClient3),
+                                                                       reinterpret_cast<void**>(&client))))
+        return 0;
+    uint32_t result = 0;
+    WAVEFORMATEX* mix = nullptr;
+    if (SUCCEEDED(client->GetMixFormat(&mix))) {
+        UINT32 defaultPeriod = 0, fundamental = 0, minPeriod = 0, maxPeriod = 0;
+        if (SUCCEEDED(client->GetSharedModeEnginePeriod(mix, &defaultPeriod, &fundamental, &minPeriod, &maxPeriod)))
+            result = minPeriod;
+        CoTaskMemFree(mix);
+    }
+    client->Release();
+    return result;
+}
 
 std::string idToHex(const ma_device_id& id) {
     static const char* kHex = "0123456789abcdef";
@@ -233,6 +258,7 @@ bool MiniaudioBackend::open(const AudioConfig& config, IAudioCallback* callback,
     impl_->deviceInit = true;
 
     sampleRate_ = impl_->device.sampleRate;
+    minPeriodFrames_ = exclusive ? 0 : sharedModeMinPeriod(reinterpret_cast<void*>(impl_->device.wasapi.pAudioClientPlayback));
     const ma_uint32 period = impl_->device.playback.internalPeriodSizeInFrames;
     const ma_uint32 periods = impl_->device.playback.internalPeriods;
     // Report the period the device really uses: shared mode often raises a small request to the engine's
@@ -305,6 +331,10 @@ uint32_t MiniaudioBackend::latencyFrames() const {
     if (impl_->split)
         return baseLatencyFrames_ + impl_->bridge.targetFrames();
     return latencyFrames_;
+}
+
+uint32_t MiniaudioBackend::cushionFrames() const {
+    return impl_->split ? impl_->bridge.targetFrames() : 0;
 }
 
 std::string MiniaudioBackend::describe() const {

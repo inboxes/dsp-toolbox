@@ -154,7 +154,7 @@ void printUsage() {
         "    --session <file>          session to load first\n"
         "  --null-audio                force the null audio backend (no audio backend yet; accepted)\n"
         "  --ui-scale <100|125|150|200>  override the UI scale (test modes)\n"
-        "  --test-action reset|undock:<Panel>|notice:<text>|tone|play|mouse:X:Y|loop:A:B|seek:S|source:mic  test "
+        "  --test-action reset|undock:<Panel>|notice:<text>|tone|play|mouse:X:Y|loop:A:B|seek:S|source:mic|source:micwithtrack  test "
         "modes: trigger a UI action at frame 20 "
         "(repeatable)\n"
         "  --use-settings              test modes: read (never write) the user's settings.json\n"
@@ -487,7 +487,7 @@ int run(HINSTANCE instance, const Options& opt) {
         const bool minimized = IsIconic(hwnd) != FALSE;
         // Anything moving on screen (playhead, meters, banners, retry status) keeps the UI at full rate.
         const bool animating = audio->engine().playing() || audio->loading() ||
-                               audio->source() == dsptb::SourceKind::Mic || audio->deviceLost() ||
+                               audio->engine().route(dsptb::SourceKind::Mic) != dsptb::InputRoute::Off || audio->deviceLost() ||
                                !notices.empty();
         // Idle: 10 fps when minimized or unfocused and nothing is animating. Test modes never throttle.
         if (!testMode && (minimized || !state.focused) && !animating)
@@ -594,6 +594,11 @@ int run(HINSTANCE instance, const Options& opt) {
                     audio->setLoopSeconds(true, a, b);
             } else if (action.rfind("seek:", 0) == 0) {
                 audio->seekSeconds(std::atof(action.c_str() + 5));
+            } else if (action == "source:micwithtrack") {
+                std::string err;
+                if (!audio->setRoutes(dsptb::InputRoute::Output, dsptb::InputRoute::Chain, err))
+                    spdlog::warn("--test-action source:micwithtrack: {}", err);
+                audio->engine().setMonitorMic(true);
             } else if (action == "source:mic") {
                 std::string err;
                 audio->setSource(dsptb::SourceKind::Mic, err);

@@ -42,13 +42,81 @@ void togglePlay(ShellContext& ctx) {
         e.play();
 }
 
-void switchSource(ShellContext& ctx, SourceKind kind) {
+void warnAboutFeedbackOnce(ShellContext& ctx) {
+    if (!ctx.settings->micMonitorWarningShown) {
+        notify(ctx, NoticeLevel::Warning, "Use headphones to avoid feedback.");
+        ctx.settings->micMonitorWarningShown = true;
+    }
+}
+
+void applyRoutes(ShellContext& ctx, InputRoute file, InputRoute mic) {
+    Engine& e = ctx.audio->engine();
+    const InputRoute micBefore = e.route(SourceKind::Mic);
     std::string err;
-    if (!ctx.audio->setSource(kind, err))
-        notify(ctx, NoticeLevel::Error,
-               kind == SourceKind::Mic ? "Could not open the microphone: " + err : err);
-    if (kind == SourceKind::Mic)
-        ctx.audio->engine().setMonitorMic(false); // monitoring is off by default
+    if (!ctx.audio->setRoutes(file, mic, err)) {
+        notify(ctx, NoticeLevel::Error, mic != InputRoute::Off ? "Could not open the microphone: " + err : err);
+        return;
+    }
+    // Monitoring stays off by default when the mic only feeds the chain. A mic sent to the output is there to be
+    // heard, so it turns monitoring on.
+    if (mic == InputRoute::Output) {
+        e.setMonitorMic(true);
+        warnAboutFeedbackOnce(ctx);
+    } else if (mic == InputRoute::Chain && micBefore == InputRoute::Off) {
+        e.setMonitorMic(false);
+    }
+}
+
+void applyMicWithTrack(ShellContext& ctx) {
+    applyRoutes(ctx, InputRoute::Output, InputRoute::Chain);
+    if (ctx.audio->engine().route(SourceKind::File) == InputRoute::Output) {
+        ctx.audio->engine().setMonitorMic(true); // singing along means hearing yourself
+        warnAboutFeedbackOnce(ctx);
+    }
+}
+
+// Exactly one input feeds the chain: taking the chain moves the other input off it, and leaving the chain hands
+// it to the other input.
+void setInputRoute(ShellContext& ctx, SourceKind input, InputRoute route) {
+    const Engine& e = ctx.audio->engine();
+    const SourceKind other = input == SourceKind::File ? SourceKind::Mic : SourceKind::File;
+    InputRoute otherRoute = e.route(other);
+    if (route == InputRoute::Chain && otherRoute == InputRoute::Chain)
+        otherRoute = InputRoute::Off;
+    else if (route != InputRoute::Chain && e.route(input) == InputRoute::Chain)
+        otherRoute = InputRoute::Chain;
+    if (input == SourceKind::File)
+        applyRoutes(ctx, route, otherRoute);
+    else
+        applyRoutes(ctx, otherRoute, route);
+}
+
+void drawInputRow(ShellContext& ctx, const char* name, SourceKind input) {
+    static constexpr const char* kRoutes[] = {"Off", "Chain", "Output"};
+    Engine& e = ctx.audio->engine();
+    const float s = dpiScale();
+    ImGui::PushID(name);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(name);
+    ImGui::SameLine(40.0f * s);
+    int route = static_cast<int>(e.route(input));
+    ImGui::SetNextItemWidth(84.0f * s);
+    if (ImGui::Combo("##route", &route, kRoutes, IM_ARRAYSIZE(kRoutes)))
+        setInputRoute(ctx, input, static_cast<InputRoute>(route));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Chain: through the processors. Output: straight to the output at its own volume. "
+                          "One input always feeds the chain.");
+    if (e.route(input) == InputRoute::Output) {
+        ImGui::SameLine();
+        float db = e.outputRouteGainDb(input);
+        ImGui::SetNextItemWidth(140.0f * s);
+        if (ImGui::SliderFloat("##volume", &db, -60.0f, 6.0f,
+                               input == SourceKind::File ? "Backing %.1f dB" : "Volume %.1f dB"))
+            e.setOutputRouteGainDb(input, db);
+        if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            e.setOutputRouteGainDb(input, 0.0f);
+    }
+    ImGui::PopID();
 }
 
 // ---- icon buttons -----------------------------------------------------------------------------------------
@@ -246,68 +314,57 @@ void drawTransportPanel(ShellContext& ctx) {
     AudioSession& a = *ctx.audio;
     Engine& e = a.engine();
     const float s = dpiScale();
-    const bool isMic = a.source() == SourceKind::Mic;
+    const InputRoute fileRoute = e.route(SourceKind::File);
+    const InputRoute micRoute = e.route(SourceKind::Mic);
+    const bool fileOn = fileRoute != InputRoute::Off;
+    const bool micOn = micRoute != InputRoute::Off;
 
-    // -- source and file/mic specific controls --
+    // -- shortcuts for the usual setups --
     ImGui::TextUnformatted("Source");
     ImGui::SameLine();
-    if (ImGui::RadioButton("File", !isMic) && isMic)
-        switchSource(ctx, SourceKind::File);
+    if (ImGui::RadioButton("File", fileRoute == InputRoute::Chain && !micOn))
+        applyRoutes(ctx, InputRoute::Chain, InputRoute::Off);
     ImGui::SameLine();
-    if (ImGui::RadioButton("Mic", isMic) && !isMic)
-        switchSource(ctx, SourceKind::Mic);
+    if (ImGui::RadioButton("Mic", micRoute == InputRoute::Chain && !fileOn))
+        applyRoutes(ctx, InputRoute::Off, InputRoute::Chain);
     ImGui::SameLine();
-    if (isMic) {
-        ImGui::TextDisabled(e.captureActive() ? "Live input" : "Input not available");
-    } else {
-        if (iconButton("open", kOpen, "Open an audio file (Ctrl+O)"))
-            ctx.openFileRequested = true;
-        ImGui::SameLine();
-        if (a.loading()) {
-            ImGui::ProgressBar(a.loadProgress(), ImVec2(160.0f * s, 0.0f));
-            ImGui::SameLine();
-            ImGui::TextDisabled("%s", a.loadingName().c_str());
-        } else if (a.file()) {
-            const std::string name = toUtf8(fromUtf8(a.file()->path).filename());
-            ImGui::TextUnformatted(name.c_str());
-        } else {
-            ImGui::TextDisabled("No file loaded");
-        }
-    }
+    ImGui::BeginDisabled(!e.hasFile());
+    if (ImGui::RadioButton("Mic + track", micRoute == InputRoute::Chain && fileRoute == InputRoute::Output))
+        applyMicWithTrack(ctx);
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip(e.hasFile() ? "Sing along: the mic goes through the chain, and the file plays as a backing track."
+                                      : "Open a backing track first.");
 
-    const bool fileMode = !isMic;
-    if (fileMode) {
-        // -- transport buttons --
-        ImGui::BeginDisabled(!e.hasFile());
-        if (iconButton("play", e.playing() ? kPause : kPlay, e.playing() ? "Pause (Space)" : "Play (Space)"))
-            togglePlay(ctx);
+    // -- one row per input --
+    drawInputRow(ctx, "File", SourceKind::File);
+    ImGui::SameLine();
+    if (iconButton("open", kOpen, "Open an audio file (Ctrl+O)"))
+        ctx.openFileRequested = true;
+    ImGui::SameLine();
+    if (a.loading()) {
+        ImGui::ProgressBar(a.loadProgress(), ImVec2(160.0f * s, 0.0f));
         ImGui::SameLine();
-        if (iconButton("stop", kStop, "Stop and return to the start (or the loop start)"))
-            e.stopTransport();
-        ImGui::SameLine();
-        const bool loop = a.loopEnabled();
-        if (iconButton("loop", kLoop,
-                       loop ? "Loop is on: drag the handles on the waveform to set the region"
-                            : "Loop the whole file or a region",
-                       loop))
-            a.setLoopSeconds(!loop, a.loopStartSeconds(), a.loopEndSeconds());
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        if (e.hasFile()) {
-            const double shown = ctx.waveformDrag == 1 ? ctx.scrubSeconds : a.positionSeconds();
-            ImGui::Text("%s / %s", formatTime(shown).c_str(), formatTime(a.durationSeconds()).c_str());
-        } else {
-            ImGui::TextDisabled("--:--.--- / --:--.---");
-        }
+        ImGui::TextDisabled("%s", a.loadingName().c_str());
+    } else if (a.file()) {
+        const std::string name = toUtf8(fromUtf8(a.file()->path).filename());
+        ImGui::TextUnformatted(name.c_str());
     } else {
-        // -- microphone controls: monitoring and the noise gate --
+        ImGui::TextDisabled("No file loaded");
+    }
+    drawInputRow(ctx, "Mic", SourceKind::Mic);
+    if (micOn) {
+        // -- microphone controls, on the mic's row: monitoring and the noise gate --
+        if (!e.captureActive()) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("Input not available");
+        }
+        ImGui::SameLine();
         bool monitor = e.monitorMic();
         if (ImGui::Checkbox("Monitor", &monitor)) {
             e.setMonitorMic(monitor);
-            if (monitor && !ctx.settings->micMonitorWarningShown) { // one-time warning
-                notify(ctx, NoticeLevel::Warning, "Use headphones to avoid feedback.");
-                ctx.settings->micMonitorWarningShown = true;
-            }
+            if (monitor)
+                warnAboutFeedbackOnce(ctx);
         }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Hear the microphone through the output. Off by default. Use headphones.");
@@ -338,22 +395,49 @@ void drawTransportPanel(ShellContext& ctx) {
         }
     }
 
+    const bool fileMode = fileOn;
+    if (fileMode) {
+        // -- transport buttons --
+        ImGui::BeginDisabled(!e.hasFile());
+        if (iconButton("play", e.playing() ? kPause : kPlay, e.playing() ? "Pause (Space)" : "Play (Space)"))
+            togglePlay(ctx);
+        ImGui::SameLine();
+        if (iconButton("stop", kStop, "Stop and return to the start (or the loop start)"))
+            e.stopTransport();
+        ImGui::SameLine();
+        const bool loop = a.loopEnabled();
+        if (iconButton("loop", kLoop,
+                       loop ? "Loop is on: drag the handles on the waveform to set the region"
+                            : "Loop the whole file or a region",
+                       loop))
+            a.setLoopSeconds(!loop, a.loopStartSeconds(), a.loopEndSeconds());
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (e.hasFile()) {
+            const double shown = ctx.waveformDrag == 1 ? ctx.scrubSeconds : a.positionSeconds();
+            ImGui::Text("%s / %s", formatTime(shown).c_str(), formatTime(a.durationSeconds()).c_str());
+        } else {
+            ImGui::TextDisabled("--:--.--- / --:--.---");
+        }
+    }
     // -- waveform overview, fills the space above the footer --
     const float footer = ImGui::GetFrameHeightWithSpacing() * 1.6f;
     ImVec2 avail = ImGui::GetContentRegionAvail();
     const ImVec2 waveSize(avail.x, std::max(48.0f * s, avail.y - footer));
-    if (fileMode) {
-        drawWaveform(ctx, waveSize);
-    } else {
-        const float startY = ImGui::GetCursorPosY();
+    const float startY = ImGui::GetCursorPosY();
+    if (micOn) {
         ImGui::Dummy(ImVec2(0, 4.0f * s));
-        ImGui::TextDisabled("Microphone level (before the gate)");
+        if (!fileOn)
+            ImGui::TextDisabled("Microphone level (before the gate)");
         const float marker = e.micGateEnabled() ? e.micGateThresholdDb() : -1000.0f;
-        drawMeterBar(toDb(e.micPeakLeft()), ImVec2(waveSize.x, 10.0f * s), -80.0f, marker);
-        drawMeterBar(toDb(e.micPeakRight()), ImVec2(waveSize.x, 10.0f * s), -80.0f, marker);
-        const float used = ImGui::GetCursorPosY() - startY;
-        ImGui::Dummy(ImVec2(0, std::max(0.0f, waveSize.y - used)));
+        drawMeterBar(toDb(e.micPeakLeft()), ImVec2(waveSize.x, (fileOn ? 5.0f : 10.0f) * s), -80.0f, marker);
+        drawMeterBar(toDb(e.micPeakRight()), ImVec2(waveSize.x, (fileOn ? 5.0f : 10.0f) * s), -80.0f, marker);
     }
+    const float used = ImGui::GetCursorPosY() - startY;
+    if (fileOn)
+        drawWaveform(ctx, ImVec2(waveSize.x, std::max(24.0f * s, waveSize.y - used)));
+    else
+        ImGui::Dummy(ImVec2(0, std::max(0.0f, waveSize.y - used)));
 
     // -- footer: master gain, mute, clip, peak meters --
     float db = e.masterGainDb();
@@ -400,6 +484,43 @@ void drawTransportPanel(ShellContext& ctx) {
 // ---------------------------------------------------------------------------------------------------------
 
 namespace {
+
+const DeviceInfo* findDevice(const ShellContext& ctx, const std::string& id, bool input) {
+    for (const DeviceInfo& d : ctx.devices)
+        if (d.isInput == input && (id.empty() ? d.isDefault : d.id == id))
+            return &d;
+    return nullptr;
+}
+
+// "Microphone (USB Mic)" and "Headphones (USB Mic)": Windows lists one piece of hardware as separate input and
+// output endpoints, and names the hardware in the brackets.
+std::string hardwareName(const std::string& endpoint) {
+    const size_t open = endpoint.find('(');
+    const size_t close = endpoint.rfind(')');
+    return open != std::string::npos && close != std::string::npos && close > open
+               ? endpoint.substr(open + 1, close - open - 1)
+               : endpoint;
+}
+
+// True when it can't tell, so the warning only shows when the two really look different.
+bool sameHardware(const ShellContext& ctx, const AudioConfig& config) {
+    const DeviceInfo* in = findDevice(ctx, config.inputDeviceId, true);
+    const DeviceInfo* out = findDevice(ctx, config.outputDeviceId, false);
+    return !in || !out || hardwareName(in->name) == hardwareName(out->name);
+}
+
+void drawSeparateDeviceWarning(const Engine& engine) {
+    const uint32_t cushion = engine.cushionFrames();
+    if (cushion > 0)
+        ImGui::TextWrapped("Input and output are different devices (+%.0f ms to keep them in sync). For the lowest "
+                           "delay, use one device for both, for example headphones plugged into your USB mic or "
+                           "audio interface.",
+                           1000.0 * cushion / std::max<uint32_t>(1, engine.sampleRate()));
+    else
+        ImGui::TextWrapped("Input and output are different devices, which adds delay to keep them in sync. For the "
+                           "lowest delay, use one device for both, for example headphones plugged into your USB mic "
+                           "or audio interface.");
+}
 
 bool deviceCombo(const char* label, std::string& id, const std::vector<DeviceInfo>& devices, bool input,
                  const char* defaultText = "System default") {
@@ -554,6 +675,13 @@ void drawAudioSettingsWindow(ShellContext& ctx) {
                 ImGui::TextDisabled(
                     "Device period in use: %u frames (%.1f ms). Estimated delay through the app: %.1f ms.",
                     en.bufferFrames(), periodMs, en.latencyMs());
+            if (en.minPeriodFrames() > 0)
+                ImGui::TextDisabled("Smallest period Windows offers this device in shared mode: %u frames (%.1f ms).",
+                                    en.minPeriodFrames(),
+                                    1000.0 * en.minPeriodFrames() / std::max<uint32_t>(1, en.sampleRate()));
+            if (en.captureActive() && (a.config().backend == BackendKind::WasapiShared || a.config().backend == BackendKind::WasapiExclusive) &&
+                !sameHardware(ctx, a.config()))
+                drawSeparateDeviceWarning(en);
         }
         ImGui::Spacing();
         if (ImGui::Button("Apply", ImVec2(90.0f * s, 0.0f))) {
@@ -683,7 +811,7 @@ void handleAudioShortcuts(ShellContext& ctx) {
         return;
     // Space plays/pauses unless keyboard navigation is driving a focused widget (Space would also click it).
     if (!io.NavVisible && ImGui::IsKeyPressed(ImGuiKey_Space, false) && e.hasFile() &&
-        ctx.audio->source() == SourceKind::File)
+        e.route(SourceKind::File) != InputRoute::Off)
         togglePlay(ctx);
     if (ImGui::IsKeyPressed(ImGuiKey_Escape, false))
         e.setMute(!e.muted()); // Esc = Mute (toggle)

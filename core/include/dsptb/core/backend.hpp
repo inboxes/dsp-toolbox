@@ -64,6 +64,10 @@ public:
     virtual bool deviceLost() const = 0;
     // Human-readable details of what the device really negotiated (periods, rates), for diagnostics.
     virtual std::string describe() const { return {}; }
+    // The smallest period Windows offers this device in shared mode, or 0 when unknown or not shared.
+    virtual uint32_t minPeriodFrames() const { return 0; }
+    // Frames held back now to keep two devices in sync, or 0 when there is no such buffer to measure.
+    virtual uint32_t cushionFrames() const { return 0; }
     // Opens the driver's own settings window (ASIO). UI thread; false if the backend has none.
     virtual bool openControlPanel() { return false; }
 };

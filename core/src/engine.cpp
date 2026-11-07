@@ -59,6 +59,8 @@ void Engine::prepareState() {
     busR_.assign(maxBlock_, 0.0f);
     micL_.assign(maxBlock_, 0.0f);
     micR_.assign(maxBlock_, 0.0f);
+    outputRouteL_.assign(maxBlock_, 0.0f);
+    outputRouteR_.assign(maxBlock_, 0.0f);
     micGate_.prepare(static_cast<double>(sampleRate_));
     gateThresholdApplied_ = 1000.0f;
     gateWasEnabled_ = false;
@@ -67,6 +69,8 @@ void Engine::prepareState() {
     fileGain_.reset(sr, options_.sourceFadeMs, micSelected ? 0.0f : 1.0f);
     micGain_.reset(sr, options_.sourceFadeMs, micSelected ? 1.0f : 0.0f);
     monitorGate_.reset(sr, options_.sourceFadeMs, (micSelected && !monitorMic()) ? 0.0f : 1.0f);
+    fileOutputGain_.reset(sr, options_.outputRouteRampMs, fileOutputTarget(micSelected));
+    micOutputGain_.reset(sr, options_.outputRouteRampMs, micOutputTarget(micSelected));
     master_.reset(sr, options_.masterRampMs, dbToLinear(masterDb_.load()));
     muteGate_.reset(sr, options_.muteRampMs, muted() ? 0.0f : 1.0f);
     chainFade_.reset(sr, options_.chainDipMs, 1.0f);
@@ -107,6 +111,21 @@ void Engine::close() {
         backend_.reset();
     }
     sampleRate_ = bufferFrames_ = latencyFrames_ = 0;
+}
+
+float Engine::fileOutputTarget(bool micSelected) const noexcept {
+    const int input = static_cast<int>(SourceKind::File);
+    return micSelected && toOutput_[input].load(std::memory_order_relaxed)
+               ? dbToLinear(outputDb_[input].load(std::memory_order_relaxed))
+               : 0.0f;
+}
+
+float Engine::micOutputTarget(bool micSelected) const noexcept {
+    const int input = static_cast<int>(SourceKind::Mic);
+    return !micSelected && toOutput_[input].load(std::memory_order_relaxed) &&
+                   monitor_.load(std::memory_order_relaxed)
+               ? dbToLinear(outputDb_[input].load(std::memory_order_relaxed))
+               : 0.0f;
 }
 
 void Engine::setFile(std::shared_ptr<const LoadedFile> file) {
@@ -240,6 +259,8 @@ void Engine::processChunk(const float* in, float* out, uint32_t n) noexcept {
     fileGain_.setTarget(micSelected ? 0.0f : 1.0f);
     micGain_.setTarget(micSelected ? 1.0f : 0.0f);
     monitorGate_.setTarget((micSelected && !monitor_.load(std::memory_order_relaxed)) ? 0.0f : 1.0f);
+    fileOutputGain_.setTarget(fileOutputTarget(micSelected));
+    micOutputGain_.setTarget(micOutputTarget(micSelected));
     master_.setTarget(dbToLinear(masterDb_.load(std::memory_order_relaxed)));
     muteGate_.setTarget(mute_.load(std::memory_order_relaxed) ? 0.0f : 1.0f);
 
@@ -327,6 +348,17 @@ void Engine::processChunk(const float* in, float* out, uint32_t n) noexcept {
         }
         busL_[i] = l;
         busR_[i] = r;
+
+        const float fo = fileOutputGain_.next();
+        const float mo = micOutputGain_.next();
+        float ol = fl * fo;
+        float or_ = fr * fo;
+        if (mo != 0.0f && in) {
+            ol += micL_[i] * mo;
+            or_ += micR_[i] * mo;
+        }
+        outputRouteL_[i] = ol;
+        outputRouteR_[i] = or_;
     }
     position_.store(pos_, std::memory_order_relaxed);
     if (reachedEnd) {
@@ -357,8 +389,8 @@ void Engine::processChunk(const float* in, float* out, uint32_t n) noexcept {
         transport.seeked = seekedFlag_ ? 1u : 0u;
 
         ChainFaults faults;
-        if (didSeek)
-            resetChain(*chain, faults); // a seek resets every processor
+        if (didSeek && !micSelected)
+            resetChain(*chain, faults); // a seek resets every processor, unless their input is the continuous mic
         processChain(*chain, busL_.data(), busR_.data(), n, transport, /*ramps=*/true, faults);
         for (uint32_t k = 0; k < faults.count; ++k)
             pushEvent(EngineEventType::ModuleFaulted, faults.ids[k],
@@ -375,7 +407,7 @@ void Engine::processChunk(const float* in, float* out, uint32_t n) noexcept {
         }
         feedTaps(chain->postTaps);
     }
-    seekedFlag_ = didSeek || didWrap;
+    seekedFlag_ = (didSeek || didWrap) && !micSelected;
     sampleClock_ += n;
 
     // ---- output safety stage: gains, NaN/Inf scrub, brickwall clip, meters ----
@@ -383,9 +415,12 @@ void Engine::processChunk(const float* in, float* out, uint32_t n) noexcept {
     uint32_t scrubbed = 0;
     bool clipped = false;
     for (uint32_t i = 0; i < n; ++i) {
-        const float g = master_.next() * muteGate_.next() * monitorGate_.next();
-        float l = busL_[i] * g;
-        float r = busR_[i] * g;
+        // Monitoring applies to the chain only here: with the mic in the chain and monitoring off, a track routed
+        // to the output is still heard. A mic routed to the output obeys it through its own target.
+        const float g = master_.next() * muteGate_.next();
+        const float chainGain = monitorGate_.next();
+        float l = (busL_[i] * chainGain + outputRouteL_[i]) * g;
+        float r = (busR_[i] * chainGain + outputRouteR_[i]) * g;
         if (!std::isfinite(l)) {
             l = 0.0f;
             ++scrubbed;

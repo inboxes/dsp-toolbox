@@ -283,6 +283,128 @@ TEST_CASE("engine: safety stage clips at 0 dBFS and scrubs NaN/Inf") {
     CHECK_FALSE(rig.engine.clipLatched());
 }
 
+namespace {
+
+// A manual-mode engine with Mic + track routes, opened after they are set so the gains start at their targets.
+struct RoutedRig : Rig {
+    RoutedRig(bool monitor, float backingDb, const PcmAudio& mic, const PcmAudio& track)
+        : Rig(Rig::exactOptions(), /*capture=*/true) {
+        engine.setSource(SourceKind::Mic);
+        engine.setOutputRoute(SourceKind::File, true);
+        engine.setOutputRouteGainDb(SourceKind::File, backingDb);
+        engine.setMonitorMic(monitor);
+        const AudioConfig cfg = engine.config();
+        std::string err;
+        REQUIRE(engine.open(cfg, err));
+        nb = engine.nullBackend();
+        nb->setRealtime(false);
+        nb->setCaptureOutput(true, kRate);
+        nb->setInput(mic.samples);
+        engine.setFile(makeFile(track));
+        REQUIRE(engine.start(err));
+    }
+};
+
+} // namespace
+
+TEST_CASE("engine: Mic + track mixes the track after the chain, and the taps hear the voice only") {
+    const PcmAudio voice = sine(440.0, -20.0, 1.0);
+    const PcmAudio track = sine(1000.0, -20.0, 1.0);
+
+    SUBCASE("output is the voice plus the track at its volume") {
+        RoutedRig rig(/*monitor=*/true, /*backingDb=*/-6.0f, voice, track);
+        TapRing pre(kRate), post(kRate);
+        auto snap = std::make_unique<ChainSnapshot>();
+        snap->preTaps.push_back(&pre);
+        snap->postTaps.push_back(&post);
+        rig.engine.publishChain(std::move(snap));
+        rig.engine.play();
+        rig.nb->pump(4800, 256);
+
+        const float gain = std::pow(10.0f, -6.0f / 20.0f);
+        for (size_t i = 0; i < 4800; i += 97)
+            CHECK(rig.nb->captured()[2 * i] ==
+                  doctest::Approx(voice.samples[2 * i] + gain * track.samples[2 * i]).epsilon(1e-4));
+        for (TapRing* tap : {&pre, &post}) {
+            std::vector<float> got(tap->ring.size());
+            got.resize(tap->ring.read(got.data(), got.size()));
+            REQUIRE(got.size() >= 2 * 4800);
+            for (size_t i = 0; i < 4800; i += 97)
+                CHECK(got[2 * i] == doctest::Approx(voice.samples[2 * i]).epsilon(1e-4));
+        }
+    }
+    SUBCASE("monitoring off silences the voice but not the track") {
+        RoutedRig rig(/*monitor=*/false, /*backingDb=*/0.0f, voice, track);
+        rig.engine.play();
+        rig.nb->pump(4800, 256);
+        for (size_t i = 0; i < 4800; i += 97)
+            CHECK(rig.nb->captured()[2 * i] == doctest::Approx(track.samples[2 * i]).epsilon(1e-4));
+    }
+    SUBCASE("a seek moves the track without telling the chain") {
+        RoutedRig rig(/*monitor=*/true, /*backingDb=*/0.0f, voice, track);
+        rig.engine.play();
+        rig.nb->pump(1024, 256);
+        rig.engine.seekFrames(24000);
+        rig.nb->pump(1024, 256);
+        CHECK(rig.engine.positionFrames() == 24000 + 1024);
+    }
+    SUBCASE("volume moves are smoothed") {
+        RoutedRig rig(/*monitor=*/false, /*backingDb=*/0.0f, voice, track);
+        rig.engine.play();
+        rig.nb->pump(2048, 256);
+        rig.engine.setOutputRouteGainDb(SourceKind::File, -60.0f);
+        rig.nb->pump(2048, 256);
+        const std::vector<float> out = rig.left(2048, 2048);
+        for (size_t i = 1; i < out.size(); ++i)
+            CHECK(std::fabs(out[i] - out[i - 1]) < 0.02f); // a 1 kHz tone at -20 dBFS moves about 0.013 per sample
+    }
+}
+
+TEST_CASE("engine: a mic routed to the output obeys monitoring, and the file still feeds the chain") {
+    const PcmAudio voice = sine(440.0, -20.0, 1.0);
+    const PcmAudio track = sine(1000.0, -20.0, 1.0);
+    for (const bool monitor : {true, false}) {
+        CAPTURE(monitor);
+        Rig rig(Rig::exactOptions(), /*capture=*/true);
+        rig.engine.setOutputRoute(SourceKind::Mic, true);
+        rig.engine.setMonitorMic(monitor);
+        const AudioConfig cfg = rig.engine.config();
+        std::string err;
+        REQUIRE(rig.engine.open(cfg, err));
+        rig.nb = rig.engine.nullBackend();
+        rig.nb->setRealtime(false);
+        rig.nb->setCaptureOutput(true, kRate);
+        rig.nb->setInput(voice.samples);
+        rig.engine.setFile(makeFile(track));
+        TapRing pre(kRate);
+        auto snap = std::make_unique<ChainSnapshot>();
+        snap->preTaps.push_back(&pre);
+        rig.engine.publishChain(std::move(snap));
+        REQUIRE(rig.engine.start(err));
+        rig.engine.play();
+        rig.nb->pump(4800, 256);
+
+        std::vector<float> tapped(pre.ring.size());
+        tapped.resize(pre.ring.read(tapped.data(), tapped.size()));
+        REQUIRE(tapped.size() >= 2 * 4800);
+        for (size_t i = 0; i < 4800; i += 97) {
+            CHECK(tapped[2 * i] == doctest::Approx(track.samples[2 * i]).epsilon(1e-4));
+            const float expected = track.samples[2 * i] + (monitor ? voice.samples[2 * i] : 0.0f);
+            CHECK(rig.nb->captured()[2 * i] == doctest::Approx(expected).epsilon(1e-4));
+        }
+    }
+}
+
+TEST_CASE("engine: routes report which input does what") {
+    Rig rig;
+    CHECK(rig.engine.route(SourceKind::File) == InputRoute::Chain);
+    CHECK(rig.engine.route(SourceKind::Mic) == InputRoute::Off);
+    rig.engine.setSource(SourceKind::Mic);
+    rig.engine.setOutputRoute(SourceKind::File, true);
+    CHECK(rig.engine.route(SourceKind::File) == InputRoute::Output);
+    CHECK(rig.engine.route(SourceKind::Mic) == InputRoute::Chain);
+}
+
 TEST_CASE("engine: mic source is silent at the output unless monitoring is on, but taps still see it") {
     const PcmAudio micSignal = sine(440.0, -10.0, 1.0);
     auto run = [&](bool monitor, std::vector<float>& outCaptured, std::vector<float>& tapped) {

@@ -26,14 +26,23 @@ struct SessionInstanceDoc {
 };
 
 struct SessionSourceDoc {
-    std::string type = "file"; // "file", "mic" or "micWithTrack"
-    std::string path;          // absolute, UTF-8
-    std::string relativePath;  // relative to the session file, '/' separators; "" = none
+    std::string path;         // absolute, UTF-8
+    std::string relativePath; // relative to the session file, '/' separators; "" = none
     bool loopEnabled = false;
     double loopStart = 0.0;
     double loopEnd = 0.0;
     bool monitorMic = false;
-    double backingGainDb = 0.0;
+};
+
+// Exactly one input has the route "chain". gainDb applies to the "output" route.
+struct SessionInputDoc {
+    std::string route = "off"; // "chain", "output" or "off"
+    double gainDb = 0.0;
+};
+
+struct SessionInputsDoc {
+    SessionInputDoc file{"chain"};
+    SessionInputDoc mic;
 };
 
 struct SessionAudioDoc {
@@ -44,10 +53,11 @@ struct SessionAudioDoc {
 };
 
 struct SessionDoc {
-    static constexpr int kVersion = 1;
+    static constexpr int kVersion = 2; // 2: "inputs" replaced "source.type"
     std::string appName, appVersion;
     SessionAudioDoc audio;
     SessionSourceDoc source;
+    SessionInputsDoc inputs;
     double masterGainDb = 0.0;
     std::vector<SessionInstanceDoc> instances; // chain order for processors; analyzers in the order added
     std::string layout;                        // ImGui ini text

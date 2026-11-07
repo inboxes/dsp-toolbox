@@ -26,12 +26,12 @@ std::string sessionToJson(const SessionDoc& doc) {
                   {"sampleRate", doc.audio.sampleRate},
                   {"bufferFrames", doc.audio.bufferFrames}};
     const SessionSourceDoc& s = doc.source;
-    j["source"] = {{"type", s.type},
-                   {"path", s.path},
+    j["source"] = {{"path", s.path},
                    {"relativePath", s.relativePath},
                    {"loop", {{"enabled", s.loopEnabled}, {"start", s.loopStart}, {"end", s.loopEnd}}},
-                   {"monitorMic", s.monitorMic},
-                   {"backingGainDb", s.backingGainDb}};
+                   {"monitorMic", s.monitorMic}};
+    j["inputs"] = {{"file", {{"route", doc.inputs.file.route}, {"gainDb", doc.inputs.file.gainDb}}},
+                   {"mic", {{"route", doc.inputs.mic.route}, {"gainDb", doc.inputs.mic.gainDb}}}};
     j["masterGainDb"] = doc.masterGainDb;
     json instances = json::array();
     for (const SessionInstanceDoc& i : doc.instances) {
@@ -63,6 +63,34 @@ std::string sessionToJson(const SessionDoc& doc) {
 }
 
 namespace {
+
+SessionInputDoc parseInput(const json& inputs, const char* name) {
+    SessionInputDoc d;
+    if (inputs.contains(name) && inputs[name].is_object()) {
+        d.route = inputs[name].value("route", d.route);
+        d.gainDb = inputs[name].value("gainDb", 0.0);
+    }
+    return d;
+}
+
+// Lenient like the rest of the parser: routes that break the "exactly one chain" rule fall back to the file.
+void parseInputs(const json& j, SessionInputsDoc& out) {
+    if (j.contains("inputs") && j["inputs"].is_object()) {
+        out.file = parseInput(j["inputs"], "file");
+        out.mic = parseInput(j["inputs"], "mic");
+    } else if (j.contains("source") && j["source"].is_object() && j["source"].value("type", "") == "mic") {
+        out.file.route = "off"; // version 1: "source.type" named the one input
+        out.mic.route = "chain";
+    }
+    const auto valid = [](const SessionInputDoc& d) {
+        return d.route == "chain" || d.route == "output" || d.route == "off";
+    };
+    if (!valid(out.file) || !valid(out.mic) || (out.file.route == "chain") == (out.mic.route == "chain")) {
+        out.file.route = "chain";
+        out.mic.route = "off";
+    }
+}
+
 bool parseSession(const std::string& text, SessionDoc& out, std::string& error) {
     out = SessionDoc{};
     json j = json::parse(text, nullptr, /*allow_exceptions=*/false);
@@ -97,7 +125,6 @@ bool parseSession(const std::string& text, SessionDoc& out, std::string& error) 
     if (j.contains("source") && j["source"].is_object()) {
         const json& s = j["source"];
         SessionSourceDoc& d = out.source;
-        d.type = s.value("type", d.type);
         d.path = s.value("path", std::string());
         d.relativePath = s.value("relativePath", std::string());
         if (s.contains("loop") && s["loop"].is_object()) {
@@ -106,8 +133,8 @@ bool parseSession(const std::string& text, SessionDoc& out, std::string& error) 
             d.loopEnd = s["loop"].value("end", 0.0);
         }
         d.monitorMic = s.value("monitorMic", false);
-        d.backingGainDb = s.value("backingGainDb", 0.0);
     }
+    parseInputs(j, out.inputs);
     out.masterGainDb = j.value("masterGainDb", 0.0);
     out.layout = j.value("layout", std::string());
 

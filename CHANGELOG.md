@@ -2,6 +2,16 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Input routes:** the file and the mic can each go to the chain, straight to the output at their own volume, or off. **Mic + track** is a one-click setup for singing along: the mic goes through the chain and the file plays as a backing track.
+
+### Changed
+
+- Session files are now format version 2. Older sessions still open, but version 0.2.0 can't open a session saved by this version.
+
 ## [0.2.0] - 2026-11-07
 
 ### Added

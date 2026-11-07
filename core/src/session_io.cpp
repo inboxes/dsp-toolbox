@@ -9,6 +9,18 @@
 
 namespace dsptb {
 
+namespace {
+
+const char* routeName(InputRoute route) {
+    return route == InputRoute::Chain ? "chain" : route == InputRoute::Output ? "output" : "off";
+}
+
+InputRoute parseRoute(const std::string& name) {
+    return name == "chain" ? InputRoute::Chain : name == "output" ? InputRoute::Output : InputRoute::Off;
+}
+
+} // namespace
+
 SessionDoc captureSession(const AudioSession& audio, const SessionModel& model,
                           const std::filesystem::path& sessionFile) {
     SessionDoc doc;
@@ -24,7 +36,10 @@ SessionDoc captureSession(const AudioSession& audio, const SessionModel& model,
     const Engine& e = audio.engine();
     doc.masterGainDb = static_cast<double>(e.masterGainDb());
     SessionSourceDoc& s = doc.source;
-    s.type = audio.source() == SourceKind::Mic ? "mic" : "file";
+    doc.inputs.file.route = routeName(e.route(SourceKind::File));
+    doc.inputs.file.gainDb = static_cast<double>(e.outputRouteGainDb(SourceKind::File));
+    doc.inputs.mic.route = routeName(e.route(SourceKind::Mic));
+    doc.inputs.mic.gainDb = static_cast<double>(e.outputRouteGainDb(SourceKind::Mic));
     s.monitorMic = e.monitorMic();
     s.loopEnabled = audio.loopEnabled();
     s.loopStart = audio.loopStartSeconds();
@@ -44,6 +59,8 @@ void resetSession(AudioSession& audio, SessionModel& model) {
     audio.setLoopSeconds(false, 0.0, 0.0);
     audio.engine().setMasterGainDb(0.0f);
     audio.engine().setMonitorMic(false);
+    audio.engine().setOutputRouteGainDb(SourceKind::File, 0.0f);
+    audio.engine().setOutputRouteGainDb(SourceKind::Mic, 0.0f);
     std::string err;
     audio.setSource(SourceKind::File, err);
 }
@@ -86,14 +103,17 @@ ApplyResult applySession(const SessionDoc& doc, const std::filesystem::path& ses
 
     model.restore(doc.instances, messages);
 
+    audio.engine().setOutputRouteGainDb(SourceKind::File, static_cast<float>(doc.inputs.file.gainDb));
+    audio.engine().setOutputRouteGainDb(SourceKind::Mic, static_cast<float>(doc.inputs.mic.gainDb));
+    const InputRoute fileRoute = parseRoute(doc.inputs.file.route);
     std::string error;
-    if (doc.source.type == "mic") {
-        if (!audio.setSource(SourceKind::Mic, error))
-            messages.push_back({NoticeLevel::Warning, "Could not switch to the microphone: " + error});
+    if (!audio.setRoutes(fileRoute, parseRoute(doc.inputs.mic.route), error)) {
+        messages.push_back({NoticeLevel::Warning, "Could not set the session's inputs: " + error});
+        if (!audio.setSource(SourceKind::File, error))
+            spdlog::warn("session: could not select the file source: {}", error);
+    } else if (fileRoute == InputRoute::Off) {
         return result;
     }
-    if (!audio.setSource(SourceKind::File, error))
-        spdlog::warn("session: could not select the file source: {}", error);
 
     if (doc.source.path.empty() && doc.source.relativePath.empty()) {
         audio.closeFile();

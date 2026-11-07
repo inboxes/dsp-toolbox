@@ -30,6 +30,10 @@ struct LoadedFile {
 
 enum class SourceKind : int { File = 0, Mic = 1 };
 
+// Where an input goes. Exactly one input is routed to the chain; an Output route skips the chain and the taps
+// and joins the signal after the POST tap.
+enum class InputRoute : int { Off = 0, Chain = 1, Output = 2 };
+
 // Audio thread -> UI notifications, 16-byte POD.
 // ModuleFaulted: value = instance id, extra = FaultReason.
 enum class EngineEventType : uint32_t { Underrun = 1, Clip, NonFinite, EndOfFile, TapOverrun, ModuleFaulted };
@@ -46,6 +50,7 @@ struct EngineOptions {
     double muteRampMs = 5.0;
     double masterRampMs = 10.0; // master gain smoothing
     double chainDipMs = 10.0;   // reorder dip: chain output fade
+    double outputRouteRampMs = 10.0; // volume of an input routed to the output
 };
 
 // The real-time engine. Owns one backend. All `onAudio` work happens on the audio thread
@@ -77,6 +82,8 @@ public:
     double latencyMs() const { return sampleRate_ ? 1000.0 * latencyFrames() / sampleRate_ : 0.0; }
     bool deviceLost() const { return backend_ && backend_->deviceLost(); }
     std::string describeBackend() const { return backend_ ? backend_->describe() : std::string(); }
+    uint32_t minPeriodFrames() const { return backend_ ? backend_->minPeriodFrames() : 0; }
+    uint32_t cushionFrames() const { return backend_ ? backend_->cushionFrames() : 0; }
     bool captureActive() const { return isOpen() && config_.capture; }
     // Only non-null for BackendKind::Null; lets tests and the CLI drive and capture it.
     NullBackend* nullBackend() {
@@ -103,12 +110,30 @@ public:
     uint64_t loopStart() const { return loopStart_.load(std::memory_order_relaxed); }
     uint64_t loopEnd() const { return loopEnd_.load(std::memory_order_relaxed); }
 
-    // ---- source selection ----
-    // Selecting Mic only has an effect when the stream was opened with capture = true.
+    // ---- input routes ----
+    // The source is the input that feeds the chain. Selecting Mic only has an effect when the stream was opened
+    // with capture = true.
     void setSource(SourceKind source) { source_.store(static_cast<int>(source), std::memory_order_relaxed); }
     SourceKind source() const { return static_cast<SourceKind>(source_.load(std::memory_order_relaxed)); }
     void setMonitorMic(bool monitor) { monitor_.store(monitor, std::memory_order_relaxed); }
     bool monitorMic() const { return monitor_.load(std::memory_order_relaxed); }
+    // The input that is not the source can also be heard, mixed in after the POST tap at its own volume. A file
+    // routed this way keeps its normal transport. A mic routed this way still obeys monitoring.
+    void setOutputRoute(SourceKind input, bool toOutput) {
+        toOutput_[static_cast<int>(input)].store(toOutput, std::memory_order_relaxed);
+    }
+    void setOutputRouteGainDb(SourceKind input, float db) {
+        outputDb_[static_cast<int>(input)].store(std::clamp(db, -60.0f, 6.0f), std::memory_order_relaxed);
+    }
+    float outputRouteGainDb(SourceKind input) const {
+        return outputDb_[static_cast<int>(input)].load(std::memory_order_relaxed);
+    }
+    InputRoute route(SourceKind input) const {
+        if (source() == input)
+            return InputRoute::Chain;
+        return toOutput_[static_cast<int>(input)].load(std::memory_order_relaxed) ? InputRoute::Output
+                                                                                  : InputRoute::Off;
+    }
 
     // ---- microphone noise gate and input meter ----
     // The gate acts on the microphone before it is mixed, so it affects the monitor output and the analyzers
@@ -162,6 +187,8 @@ private:
     void pushEvent(EngineEventType type, uint32_t value = 0, uint64_t extra = 0) noexcept;
     void pushTap(TapRing& tap, const float* l, const float* r, uint32_t n) noexcept;
     void prepareState();
+    float fileOutputTarget(bool micSelected) const noexcept;
+    float micOutputTarget(bool micSelected) const noexcept;
 
     EngineOptions options_;
     AudioConfig config_;
@@ -186,6 +213,8 @@ private:
     std::atomic<uint64_t> loopEnd_{0};
     std::atomic<int> source_{static_cast<int>(SourceKind::File)};
     std::atomic<bool> monitor_{false};
+    std::atomic<bool> toOutput_[2] = {false, false};  // by SourceKind
+    std::atomic<float> outputDb_[2] = {0.0f, 0.0f}; // by SourceKind
     std::atomic<float> masterDb_{0.0f};
     std::atomic<bool> mute_{false};
     std::atomic<bool> gateEnabled_{false};
@@ -211,12 +240,16 @@ private:
     uint64_t seekTarget_ = 0;
     bool atEnd_ = false;
     rt::SmoothedValue fileGain_, micGain_, monitorGate_, master_, muteGate_, chainFade_;
+    // One per input rather than one for "the other input", so swapping the routes fades both instead of
+    // jumping from one signal to the other.
+    rt::SmoothedValue fileOutputGain_, micOutputGain_;
     uint64_t sampleClock_ = 0;
     bool seekedFlag_ = false; // a seek or loop wrap happened in the previous chunk
     bool wasMic_ = false;
     uint64_t micStartClock_ = 0;
     std::vector<float> busL_, busR_;
     std::vector<float> micL_, micR_;
+    std::vector<float> outputRouteL_, outputRouteR_;
     NoiseGate micGate_;
     float gateThresholdApplied_ = 1000.0f;
     bool gateWasEnabled_ = false;

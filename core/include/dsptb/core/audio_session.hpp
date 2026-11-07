@@ -54,9 +54,12 @@ public:
     double loopStartSeconds() const { return loopStartSec_; }
     double loopEndSeconds() const;
 
-    // ---- source ----
-    // Selecting Mic reopens the stream with capture; selecting File reopens it playback-only (releases the
-    // mic).
+    // ---- input routes ----
+    // Exactly one input goes to the chain. Using the mic at all reopens the stream with capture; leaving it Off
+    // reopens it playback-only (releases the mic). The transport belongs to the file, so turning the file Off
+    // pauses it.
+    bool setRoutes(InputRoute file, InputRoute mic, std::string& error);
+    // The input feeds the chain and the other one is Off.
     bool setSource(SourceKind source, std::string& error);
     SourceKind source() const { return engine_.source(); }
 

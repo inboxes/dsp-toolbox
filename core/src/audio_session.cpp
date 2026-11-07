@@ -78,7 +78,16 @@ void AudioSession::retryStream(std::vector<AudioMessage>& messages) {
 }
 
 bool AudioSession::setSource(SourceKind source, std::string& error) {
-    const bool needCapture = source == SourceKind::Mic;
+    return source == SourceKind::Mic ? setRoutes(InputRoute::Off, InputRoute::Chain, error)
+                                     : setRoutes(InputRoute::Chain, InputRoute::Off, error);
+}
+
+bool AudioSession::setRoutes(InputRoute file, InputRoute mic, std::string& error) {
+    if ((file == InputRoute::Chain) == (mic == InputRoute::Chain)) {
+        error = "exactly one input must feed the chain";
+        return false;
+    }
+    const bool needCapture = mic != InputRoute::Off;
     if (needCapture != wantCapture_ || (needCapture && !engine_.captureActive())) {
         wantCapture_ = needCapture;
         if (engine_.isOpen()) {
@@ -95,9 +104,11 @@ bool AudioSession::setSource(SourceKind source, std::string& error) {
             }
         }
     }
-    engine_.setSource(source);
-    if (source == SourceKind::Mic)
-        engine_.pause(); // the transport belongs to the file source
+    engine_.setOutputRoute(SourceKind::File, file == InputRoute::Output);
+    engine_.setOutputRoute(SourceKind::Mic, mic == InputRoute::Output);
+    engine_.setSource(mic == InputRoute::Chain ? SourceKind::Mic : SourceKind::File);
+    if (file == InputRoute::Off)
+        engine_.pause(); // the transport belongs to the file
     return true;
 }
 

@@ -209,6 +209,53 @@ TEST_CASE("session: save -> load -> save is byte-identical, with every first-par
     CHECK(readText(second) == first);
 }
 
+TEST_CASE("session: inputs round-trip, and version 1 files migrate") {
+    SessionDoc doc;
+    std::string err;
+
+    SUBCASE("version 1, file") {
+        REQUIRE(sessionFromJson(R"({"format":"dsptb-session","version":1,"source":{"type":"file"}})", doc, err));
+        CHECK(doc.inputs.file.route == "chain");
+        CHECK(doc.inputs.mic.route == "off");
+    }
+    SUBCASE("version 1, mic") {
+        REQUIRE(sessionFromJson(R"({"format":"dsptb-session","version":1,"source":{"type":"mic"}})", doc, err));
+        CHECK(doc.inputs.file.route == "off");
+        CHECK(doc.inputs.mic.route == "chain");
+    }
+    SUBCASE("routes that break the rule fall back to the file") {
+        REQUIRE(sessionFromJson(
+            R"({"format":"dsptb-session","version":2,"inputs":{"file":{"route":"chain"},"mic":{"route":"chain"}}})", doc,
+            err));
+        CHECK(doc.inputs.file.route == "chain");
+        CHECK(doc.inputs.mic.route == "off");
+        REQUIRE(sessionFromJson(R"({"format":"dsptb-session","version":2,"inputs":{"file":{"route":"sideways"}}})", doc,
+                                err));
+        CHECK(doc.inputs.file.route == "chain");
+    }
+    SUBCASE("Mic + track survives save and load") {
+        doc.inputs.file = {"output", -6.0};
+        doc.inputs.mic = {"chain", 0.0};
+        SessionDoc back;
+        const std::string text = sessionToJson(doc);
+        CHECK(json::parse(text)["version"] == 2);
+        REQUIRE(sessionFromJson(text, back, err));
+        CHECK(back.inputs.file.route == "output");
+        CHECK(back.inputs.file.gainDb == doctest::Approx(-6.0));
+        CHECK(back.inputs.mic.route == "chain");
+        CHECK(sessionToJson(back) == text);
+
+        Rig r;
+        applySession(back, "none.dsptb.json", r.audio, r.model, r.messages);
+        CHECK(r.audio.engine().route(SourceKind::File) == InputRoute::Output);
+        CHECK(r.audio.engine().route(SourceKind::Mic) == InputRoute::Chain);
+        CHECK(r.audio.engine().outputRouteGainDb(SourceKind::File) == doctest::Approx(-6.0f));
+        const SessionDoc saved = captureSession(r.audio, r.model, {});
+        CHECK(saved.inputs.file.route == "output");
+        CHECK(saved.inputs.mic.route == "chain");
+    }
+}
+
 TEST_CASE("session: a missing module becomes a placeholder that keeps its data") {
     json j = {{"format", "dsptb-session"},
               {"version", 1},

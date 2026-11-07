@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdio>
 #include <functional>
+#include <string>
 #include <thread>
 
 DSPTB_DEFINE_RT_GUARD();
@@ -70,4 +71,26 @@ public:
                                             .defaultTap = DSPTB_TAP_POST};
 };
 
-DSPTB_REGISTER_MODULES(Probe, ProbeThread);
+// Counts reset() calls, so a test can see whether the host reset the chain.
+class ResetCounter final : public dsptb::Processor<ResetCounter> {
+public:
+    static constexpr dsptb::ModuleInfo info{.id = "test.reset-counter",
+                                            .name = "Reset counter (test)",
+                                            .version = "0.1.0",
+                                            .vendor = "DSP Toolbox tests",
+                                            .description = "Test fixture: counts reset() calls.",
+                                            .caps = DSPTB_CAP_REALTIME};
+    static constexpr auto params = dsptb::noParams();
+
+    bool prepare(const dsptb::PrepareInfo&) override { return true; }
+    void process(dsptb::ProcessBlock&) override {}
+    void reset() override { resets_.fetch_add(1, std::memory_order_relaxed); }
+    std::string dumpFrames() override {
+        return "{\"resets\":" + std::to_string(resets_.load(std::memory_order_relaxed)) + "}";
+    }
+
+private:
+    std::atomic<uint64_t> resets_{0};
+};
+
+DSPTB_REGISTER_MODULES(Probe, ProbeThread, ResetCounter);

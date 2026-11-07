@@ -26,6 +26,9 @@ public:
 
     std::string describe() const override;
 
+    uint32_t minPeriodFrames() const override { return minPeriodFrames_; }
+    uint32_t cushionFrames() const override;
+
     static bool enumerate(std::vector<DeviceInfo>& out, std::string& error);
 
 private:
@@ -36,6 +39,7 @@ private:
     uint32_t bufferFrames_ = 0;
     uint32_t latencyFrames_ = 0;
     uint32_t baseLatencyFrames_ = 0; // device buffers; the split-duplex bridge cushion is added live
+    uint32_t minPeriodFrames_ = 0;
     std::atomic<bool> lost_{false};
     std::atomic<bool> stopping_{false};
 };

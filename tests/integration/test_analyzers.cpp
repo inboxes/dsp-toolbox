@@ -291,6 +291,23 @@ TEST_CASE("analyze --module: unknown module, wrong kind and unknown parameter ar
 // Analysis host and analyzer instances in the session
 // ----------------------------------------------------------------------------------------------------------
 
+TEST_CASE("routes: a seek resets the chain only when the file feeds it") {
+    for (const bool micInChain : {false, true}) {
+        CAPTURE(micInChain);
+        AnalyzerRig rig(/*micCapture=*/true, 4.0);
+        rig.engine.setSource(micInChain ? SourceKind::Mic : SourceKind::File);
+        rig.engine.setOutputRoute(SourceKind::File, micInChain);
+        const InstanceId id = rig.add("test.reset-counter");
+        rig.useFile(sine(1000.0, -12.0, 2.0));
+        rig.run(8);
+        const uint64_t before = rig.probe(id)["resets"].get<uint64_t>();
+        rig.engine.seekFrames(24000);
+        rig.run(8);
+        CHECK(rig.probe(id)["resets"].get<uint64_t>() - before == (micInChain ? 0u : 1u));
+        CHECK(rig.engine.positionFrames() > 24000);
+    }
+}
+
 TEST_CASE("analyzers: an analyzer on PRE receives the microphone while monitoring is off") {
     AnalyzerRig rig(/*micCapture=*/true, 4.0);
     rig.engine.setSource(SourceKind::Mic);
