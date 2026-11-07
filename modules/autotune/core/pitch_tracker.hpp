@@ -25,13 +25,8 @@ public:
     void reset() noexcept;
 
 private:
-    float median() const noexcept;
-
-    float history_[3] = {0.0f, 0.0f, 0.0f};
-    int count_ = 0;
-    int next_ = 0;
     float previous_ = 0.0f; // the last accepted f0; 0 after an unvoiced hop
-    int heldHops_ = 0;      // hops an octave jump has been ignored for
+    int heldHops_ = 0;      // hops a jump has been ignored for
 };
 
 } // namespace dsptb::autotune

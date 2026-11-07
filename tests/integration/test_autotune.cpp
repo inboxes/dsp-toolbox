@@ -163,18 +163,22 @@ TEST_CASE("autotune: T3 low Strength keeps the vibrato in both shifter modes") {
     }
 }
 
-// The correction arrives about 30 ms late, so full Strength flattens a slow drift but can't follow a 6 Hz vibrato.
-// What it must do there is not make the vibrato much deeper.
-TEST_CASE("autotune: T4 full Strength flattens a slow drift in both shifter modes") {
-    const AudioBuffer drift = vowel(440.0, 4.0, 1.0, 50.0);
-    const AudioBuffer vibrato = vowel(440.0, 3.0, 6.0, 50.0);
-    const double vibratoDepth = depthCents(measure(vibrato), 440.0);
+// Full Strength flattens a slow drift almost completely, and most of a 6 Hz vibrato. It must never make a wobble
+// deeper: a correction that arrives late does exactly that, so this also checks how late it is.
+TEST_CASE("autotune: T4 full Strength flattens drift and vibrato in both shifter modes") {
     for (const int shifter : {1, 2}) {
         CAPTURE(shifter);
         Setup s;
         s.shifter = shifter;
-        CHECK(depthCents(measure(render(drift, s)), 440.0) <= 25.0);
-        CHECK(depthCents(measure(render(vibrato, s)), 440.0) <= 1.15 * vibratoDepth);
+        s.scale = 2;
+        CHECK(depthCents(measure(render(vowel(440.0, 4.0, 1.0, 50.0), s)), 440.0) <= 10.0);
+        CHECK(depthCents(measure(render(vowel(440.0, 3.0, 6.0, 50.0), s)), 440.0) <= 25.0);
+        // G3 is too low for the shortest frame, so the correction comes a little later there.
+        for (const double rate : {3.0, 6.0, 8.0}) {
+            CAPTURE(rate);
+            const AudioBuffer in = vowel(196.0, 3.0, rate, 50.0);
+            CHECK(depthCents(measure(render(in, s)), 196.0) <= 0.5 * depthCents(measure(in), 196.0));
+        }
     }
 }
 

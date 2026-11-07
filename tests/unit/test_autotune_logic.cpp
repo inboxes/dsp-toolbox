@@ -82,19 +82,22 @@ TEST_CASE("autotune: pitch tracking") {
         a432.refA4 = 432.0f;
         CHECK(t.update(432.0f, true, -20.0f, a432).midi == doctest::Approx(69.0f));
     }
-    SUBCASE("the median removes a single outlier") {
+    SUBCASE("small changes pass straight through") {
         voiced(440.0f);
-        voiced(441.0f);
-        CHECK(voiced(500.0f).f0Hz == doctest::Approx(441.0f));
-        CHECK(voiced(442.0f).f0Hz == doctest::Approx(442.0f));
+        CHECK(voiced(470.0f).f0Hz == doctest::Approx(470.0f)); // 114 cents
     }
-    SUBCASE("an unvoiced hop clears the median") {
-        voiced(440.0f);
+    SUBCASE("a jump to the third harmonic is held too") {
+        voiced(220.0f);
+        CHECK(voiced(660.0f).f0Hz == doctest::Approx(220.0f));
+        CHECK(voiced(330.0f).f0Hz == doctest::Approx(220.0f)); // a fifth
+        CHECK(voiced(220.0f).f0Hz == doctest::Approx(220.0f));
+    }
+    SUBCASE("an unvoiced hop forgets the last note") {
         voiced(440.0f);
         t.update(0.0f, false, -20.0f, config);
         CHECK(voiced(300.0f).f0Hz == doctest::Approx(300.0f));
     }
-    SUBCASE("the octave guard holds for three hops, then accepts") {
+    SUBCASE("a jump is held for three hops, then accepted") {
         voiced(220.0f);
         for (int i = 0; i < 3; ++i)
             CHECK(voiced(440.0f).f0Hz == doctest::Approx(220.0f));

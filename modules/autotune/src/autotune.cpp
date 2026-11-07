@@ -62,12 +62,20 @@ public:
         const bool highRate = p.sampleRate > 60000.0;
         hop_ = highRate ? 512u : 256u;
 
-        dsp::PitchConfig pitch;
-        pitch.frameSize = highRate ? 4096 : 2048;
-        pitch.hop = hop_;
-        pitch.minHz = 80.0;
-        pitch.maxHz = 1000.0;
-        yin_ = std::make_unique<dsp::YinPitch>(p.sampleRate, pitch);
+        // A frame describes the sound about half its length ago, and a late correction makes a quick wobble deeper
+        // instead of flatter. So shorter frames run alongside the long one, and a note high enough for one is
+        // measured with it.
+        const size_t longest = highRate ? 4096 : 2048;
+        for (size_t k = 0; k < kDetectors; ++k) {
+            dsp::PitchConfig pitch;
+            pitch.frameSize = longest >> k;
+            pitch.hop = hop_;
+            // The longest period a frame can measure is half its length.
+            pitch.minHz = k == 0 ? 80.0 : p.sampleRate / static_cast<double>(pitch.frameSize / 2) * 1.001;
+            pitch.maxHz = 1000.0;
+            yin_[k] = std::make_unique<dsp::YinPitch>(p.sampleRate, pitch);
+            minHz_[k] = static_cast<float>(pitch.minHz);
+        }
 
         // Latency must stay constant between prepares, so the mode is read only here.
         const int mode = host().valid() ? static_cast<int>(host().getParam(kShifterMode) + 0.5f) : kAuto;
@@ -116,9 +124,13 @@ public:
                 hopEnergy_ += static_cast<double>(mono_[done + i]) * mono_[done + i];
             samplesUntilHop_ -= len;
             const bool hopEnds = samplesUntilHop_ == 0;
-            yin_->push(mono_.data() + done, len, [&](const dsp::PitchResult& r) {
-                onEstimate(b, r, b.transport().sample_clock + done + len);
-            });
+            for (size_t k = 0; k < kDetectors; ++k)
+                yin_[k]->push(mono_.data() + done, len, [&](const dsp::PitchResult& r) {
+                    estimates_[k] = r;
+                    fresh_[k] = true;
+                });
+            if (fresh_[0]) // every frame ends on a hop, so the long frame's result arrives with the others
+                onEstimate(b, pickEstimate(), b.transport().sample_clock + done + len);
             if (hopEnds) {
                 samplesUntilHop_ = hop_;
                 hopEnergy_ = 0.0;
@@ -171,8 +183,11 @@ private:
     static constexpr float kRangeHz[4][2] = {{80.0f, 1000.0f}, {80.0f, 400.0f}, {130.0f, 700.0f}, {200.0f, 1000.0f}};
 
     void resetState() {
-        if (yin_)
-            yin_->reset();
+        for (size_t k = 0; k < kDetectors; ++k) {
+            if (yin_[k])
+                yin_[k]->reset();
+            fresh_[k] = false;
+        }
         if (shifter_)
             shifter_->reset();
         tracker_.reset();
@@ -191,6 +206,26 @@ private:
         d.root = static_cast<int>((packed >> 8) & 15u);
         d.scale = (packed & 4u) != 0 ? Scale::Minor : Scale::Major;
         return d;
+    }
+
+    // The shortest frame that can measure the note and agrees with the long one roughly; otherwise the long one.
+    // "Roughly" is three semitones, so a quick note change still counts while a harmonic jump doesn't.
+    dsp::PitchResult pickEstimate() noexcept {
+        const dsp::PitchResult& longest = estimates_[0];
+        const float reference = longest.voiced ? longest.hz : (tracked_.voiced ? tracked_.f0Hz : 0.0f);
+        dsp::PitchResult chosen = longest;
+        if (reference > 0.0f)
+            for (size_t k = kDetectors - 1; k > 0; --k) {
+                const dsp::PitchResult& r = estimates_[k];
+                if (fresh_[k] && r.voiced && r.hz >= 1.25f * minHz_[k] &&
+                    std::fabs(1200.0f * std::log2(r.hz / reference)) <= 300.0f) {
+                    chosen = r;
+                    break;
+                }
+            }
+        for (size_t k = 0; k < kDetectors; ++k)
+            fresh_[k] = false;
+        return chosen;
     }
 
     void onEstimate(ProcessBlock& b, const dsp::PitchResult& result, uint64_t clock) noexcept {
@@ -340,7 +375,11 @@ private:
 
     double sampleRate_ = 0.0;
     uint32_t hop_ = 256;
-    std::unique_ptr<dsp::YinPitch> yin_;
+    static constexpr size_t kDetectors = 3; // full, half and quarter frame length
+    std::unique_ptr<dsp::YinPitch> yin_[kDetectors];
+    float minHz_[kDetectors] = {};
+    dsp::PitchResult estimates_[kDetectors] = {};
+    bool fresh_[kDetectors] = {};
     std::unique_ptr<dsp::PsolaShifter> shifter_;
     std::vector<float> mono_, out_;
 
