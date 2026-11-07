@@ -7,6 +7,8 @@
 //   DSPTB_DEFINE_RT_GUARD();        // once per module, in one .cpp (see rt/rt_guard.hpp)
 //   DSPTB_REGISTER_MODULES(Gain)    // generates dsptb_module_count / dsptb_module_get
 
+#include <cstddef>
+
 #include "canvas.hpp"
 #include "dsp/db.hpp"
 #include "dsp/window.hpp"
@@ -114,6 +116,11 @@ private:
 };
 
 // Wraps dsptb_host_api (UI thread unless noted).
+class Host;
+
+// Holds a view of the working file and releases it when it goes out of scope. Never on the audio thread.
+class WorkingFile;
+
 class Host {
 public:
     Host() = default;
@@ -135,11 +142,47 @@ public:
             api_->mark_state_dirty(api_->host, api_->instance_token, undoLabel);
     }
     const char* moduleDir() const { return api_ ? api_->module_dir_utf8 : ""; }
+    // Working file (0.3.0 hosts). Older hosts don't have it: generation 0, and acquire fails.
+    bool hasWorkingFileApi() const {
+        return api_ && api_->struct_size >= offsetof(dsptb_host_api, release_working_file) + sizeof(void*);
+    }
+    uint64_t workingFileGeneration() const { // any thread, the audio thread included
+        return hasWorkingFileApi() ? api_->working_file_generation(api_->host) : 0;
+    }
+    bool acquireWorkingFile(dsptb_file_view& view) const { // never on the audio thread
+        view = dsptb_file_view{};
+        view.struct_size = static_cast<uint32_t>(sizeof(view));
+        return hasWorkingFileApi() && api_->acquire_working_file(api_->host, api_->instance_token, &view) != 0;
+    }
+    void releaseWorkingFile(dsptb_file_view& view) const {
+        if (hasWorkingFileApi() && view.handle)
+            api_->release_working_file(api_->host, api_->instance_token, &view);
+    }
     const char* hostVersion() const { return api_ ? api_->host_version : ""; }
     const dsptb_host_api* raw() const { return api_; }
 
 private:
     const dsptb_host_api* api_ = nullptr;
+};
+
+class WorkingFile {
+public:
+    explicit WorkingFile(const Host& host) : host_(host) { ok_ = host_.acquireWorkingFile(view_); }
+    ~WorkingFile() {
+        if (ok_)
+            host_.releaseWorkingFile(view_);
+    }
+    WorkingFile(const WorkingFile&) = delete;
+    WorkingFile& operator=(const WorkingFile&) = delete;
+    explicit operator bool() const { return ok_; }
+    const dsptb_file_view& view() const { return view_; }
+    uint64_t frames() const { return ok_ ? view_.num_frames : 0; }
+    const float* channel(uint32_t i) const { return view_.channels[i < view_.num_channels ? i : 0]; }
+
+private:
+    Host host_;
+    dsptb_file_view view_{};
+    bool ok_ = false;
 };
 
 // ---------------------------------------------------------------------------------------------------------

@@ -146,8 +146,18 @@ std::shared_ptr<ModuleInstance> make(ModulePackage& pkg, const dsptb_module_desc
 
 // create -> prepare -> 200 blocks of random size -> reset -> 50 blocks -> destroy.
 bool lifecycle(ModulePackage& pkg, const dsptb_module_desc& d, double sr, uint32_t maxBlock,
-               std::string& why) {
+               std::string& why, bool withFile = false) {
     SimpleModuleHost host;
+    if (withFile) { // a module that reads the working file must cope with one appearing at any time
+        auto file = std::make_shared<AudioBuffer>();
+        file->sampleRate = static_cast<uint32_t>(sr);
+        const auto n = static_cast<size_t>(sr);
+        file->ch[0].resize(n);
+        for (size_t i = 0; i < n; ++i)
+            file->ch[0][i] = 0.25f * std::sin(static_cast<float>(2.0 * 3.14159265358979 * 220.0 * static_cast<double>(i) / sr));
+        file->ch[1] = file->ch[0];
+        host.setWorkingFile(file);
+    }
     std::string err;
     auto inst = make(pkg, d, host, err);
     if (!inst) {
@@ -199,9 +209,10 @@ void checkProcessor(ModulePackage& pkg, const dsptb_module_desc& d, std::vector<
         for (double sr : {44100.0, 48000.0, 96000.0})
             for (uint32_t block : {32u, 256u, 2048u}) {
                 std::string why;
-                if (failure.empty() && !lifecycle(pkg, d, sr, block, why))
-                    failure = std::to_string(static_cast<int>(sr)) + " Hz, max block " +
-                              std::to_string(block) + ": " + why;
+                for (const bool withFile : {false, true})
+                    if (failure.empty() && !lifecycle(pkg, d, sr, block, why, withFile))
+                        failure = std::to_string(static_cast<int>(sr)) + " Hz, max block " +
+                                  std::to_string(block) + (withFile ? ", with a working file: " : ": ") + why;
             }
         chk.add("lifecycle (3 rates x 3 block sizes, 200 random blocks, reset, 50 blocks)", failure.empty(),
                 failure);

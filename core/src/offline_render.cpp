@@ -45,6 +45,7 @@ bool renderOffline(ModuleRegistry& registry, const SessionDescription& session, 
     const uint32_t block = std::max<uint32_t>(32, options.blockFrames);
 
     SimpleModuleHost host;
+    host.setWorkingFile(std::make_shared<const AudioBuffer>(input)); // the render input is the working file
     ChainSnapshot chain;
     InstanceId nextId = 1;
     uint32_t latency = 0;

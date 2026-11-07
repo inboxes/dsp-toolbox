@@ -525,6 +525,7 @@ int run(HINSTANCE instance, const Options& opt) {
 
         {
             std::vector<dsptb::SessionMessage> sessionMessages;
+            model->setWorkingFile(audio->file());
             model->tick(ImGui::GetTime(), sessionMessages);
             for (const auto& m : sessionMessages)
                 notices.push(m.level, m.text, ImGui::GetTime());

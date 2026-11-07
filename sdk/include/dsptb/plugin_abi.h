@@ -83,6 +83,17 @@ typedef struct dsptb_analyze_ctx {
   dsptb_tap tap;
 } dsptb_analyze_ctx;
 
+/* A read-only view of the working file (host API, 0.3.0). */
+typedef struct dsptb_file_view {
+  uint32_t struct_size;
+  const float* const* channels; /* planar, read-only; valid until release_working_file */
+  uint32_t num_channels;        /* 2 */
+  uint64_t num_frames;
+  double   sample_rate;         /* the engine rate (the file is already resampled) */
+  uint64_t generation;          /* matches working_file_generation() at acquire time */
+  void*    handle;              /* host-owned; pass back unchanged */
+} dsptb_file_view;
+
 typedef struct dsptb_offline_ctx {
   uint32_t struct_size;
   const float* const* channels; /* whole file, planar */
@@ -168,6 +179,10 @@ typedef struct dsptb_host_api {
   void* (*gpu_d3d11_device)(void* host); /* ID3D11Device*, NULL if no CAP_GPU or unavailable */
   void  (*gpu_lock)(void* host);
   void  (*gpu_unlock)(void* host);
+  /* Appended in 0.3.0; check struct_size before use. The working file is the one the transport plays. */
+  uint64_t (*working_file_generation)(void* host);  /* ANY thread, incl. audio; 0 = no file; changes on every load/unload */
+  int  (*acquire_working_file)(void* host, void* instance_token, dsptb_file_view* out);   /* any NON-audio thread; 1 = ok, 0 = no file */
+  void (*release_working_file)(void* host, void* instance_token, dsptb_file_view* view); /* any NON-audio thread */
 } dsptb_host_api;
 
 /* ---------- module descriptor ---------- */
@@ -260,11 +275,16 @@ DSPTB_ABI_OFFSET(dsptb_canvas_api, ctx, 8);
 DSPTB_ABI_OFFSET(dsptb_canvas_api, ui_scale, 16);
 DSPTB_ABI_OFFSET(dsptb_canvas_api, begin_region, 32);
 DSPTB_ABI_OFFSET(dsptb_canvas_api, texture_destroy, 280);
-DSPTB_ABI_SIZE(dsptb_host_api, 96);
+DSPTB_ABI_SIZE(dsptb_host_api, 120);
 DSPTB_ABI_OFFSET(dsptb_host_api, abi_version, 4);
 DSPTB_ABI_OFFSET(dsptb_host_api, host, 8);
 DSPTB_ABI_OFFSET(dsptb_host_api, log, 40);
 DSPTB_ABI_OFFSET(dsptb_host_api, gpu_unlock, 88);
+DSPTB_ABI_OFFSET(dsptb_host_api, working_file_generation, 96);
+DSPTB_ABI_OFFSET(dsptb_host_api, release_working_file, 112);
+DSPTB_ABI_SIZE(dsptb_file_view, 56);
+DSPTB_ABI_OFFSET(dsptb_file_view, num_frames, 24);
+DSPTB_ABI_OFFSET(dsptb_file_view, handle, 48);
 DSPTB_ABI_SIZE(dsptb_module_desc, 176);
 DSPTB_ABI_OFFSET(dsptb_module_desc, abi_version, 4);
 DSPTB_ABI_OFFSET(dsptb_module_desc, id, 8);

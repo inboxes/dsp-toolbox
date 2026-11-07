@@ -85,6 +85,45 @@ void hostMarkDirty(void*, void* token, const char* label) {
     if (m && m->host())
         m->host()->moduleMarkStateDirty(*m, label ? label : "");
 }
+uint64_t hostFileGeneration(void* hostPtr) {
+    ModuleInstance* m = inst(hostPtr);
+    return m && m->host() ? m->host()->workingFileGeneration() : 0;
+}
+
+int hostAcquireFile(void*, void* token, dsptb_file_view* out) {
+    ModuleInstance* m = inst(token);
+    if (!m || !m->host() || !out || out->struct_size < sizeof(dsptb_file_view))
+        return 0;
+    uint64_t generation = 0;
+    auto audio = m->host()->acquireWorkingFile(generation);
+    if (!audio || audio->frames() == 0)
+        return 0;
+    auto hold = std::make_unique<ModuleInstance::FileViewHold>();
+    hold->channels[0] = audio->ch[0].data();
+    hold->channels[1] = audio->ch[1].data();
+    out->channels = hold->channels;
+    out->num_channels = 2;
+    out->num_frames = audio->frames();
+    out->sample_rate = static_cast<double>(audio->sampleRate);
+    out->generation = generation;
+    out->handle = hold.get();
+    hold->audio = std::move(audio);
+    std::lock_guard lock(m->viewsMutex_);
+    m->views_.push_back(std::move(hold));
+    return 1;
+}
+
+void hostReleaseFile(void*, void* token, dsptb_file_view* view) {
+    ModuleInstance* m = inst(token);
+    if (!m || !view || !view->handle)
+        return;
+    std::lock_guard lock(m->viewsMutex_);
+    auto& v = m->views_;
+    v.erase(std::remove_if(v.begin(), v.end(), [&](const auto& h) { return h.get() == view->handle; }), v.end());
+    view->handle = nullptr;
+    view->channels = nullptr;
+}
+
 void* hostGpuDevice(void*) {
     return nullptr; // no module in v1 asks for the GPU yet
 }
@@ -140,6 +179,9 @@ std::shared_ptr<ModuleInstance> ModuleInstance::create(InstanceId id, ModulePack
     h.gpu_d3d11_device = &hostGpuDevice;
     h.gpu_lock = &hostGpuNoop;
     h.gpu_unlock = &hostGpuNoop;
+    h.working_file_generation = &hostFileGeneration;
+    h.acquire_working_file = &hostAcquireFile;
+    h.release_working_file = &hostReleaseFile;
 
     void* self = nullptr;
     const bool ok = guarded([&] { self = desc.create(&m->hostApi_); });
@@ -158,6 +200,8 @@ ModuleInstance::~ModuleInstance() {
         const auto destroy = desc_->destroy;
         guarded([&] { destroy(self); });
     }
+    if (!views_.empty()) // freed with the instance either way, but the module broke its side of the contract
+        spdlog::warn("[{}] {} working-file view(s) not released before destroy", moduleId_, views_.size());
 }
 
 bool ModuleInstance::prepare(double sampleRate, uint32_t maxBlockFrames, bool offline, std::string& error) {

@@ -208,6 +208,10 @@ typedef struct dsptb_host_api {
   void* (*gpu_d3d11_device)(void* host); /* ID3D11Device*, NULL if no CAP_GPU or unavailable */
   void  (*gpu_lock)(void* host);
   void  (*gpu_unlock)(void* host);
+  /* Appended in 0.3.0; check struct_size before use. The working file is the one the transport plays. */
+  uint64_t (*working_file_generation)(void* host);  /* ANY thread, incl. audio; 0 = no file; changes on every load/unload */
+  int  (*acquire_working_file)(void* host, void* instance_token, dsptb_file_view* out);   /* any NON-audio thread; 1 = ok, 0 = no file */
+  void (*release_working_file)(void* host, void* instance_token, dsptb_file_view* view); /* any NON-audio thread */
 } dsptb_host_api;
 
 /* ---------- module descriptor ---------- */

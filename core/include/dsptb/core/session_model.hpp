@@ -124,6 +124,15 @@ public:
     void moduleLog(ModuleInstance& who, dsptb_log_level level, const char* utf8) override;
     void moduleSetParam(ModuleInstance& who, uint32_t index, float value) override;
     void moduleMarkStateDirty(ModuleInstance& who, const char* undoLabel) override;
+    uint64_t workingFileGeneration() const override { return workingFile_.generation(); }
+    std::shared_ptr<const AudioBuffer> acquireWorkingFile(uint64_t& generation) override {
+        return workingFile_.acquire(generation);
+    }
+    // The file the transport plays (UI thread, cheap to call every frame). Modules see a new generation when it
+    // changes, including a reload at a new sample rate.
+    void setWorkingFile(const std::shared_ptr<const LoadedFile>& file) {
+        workingFile_.set(file ? std::shared_ptr<const AudioBuffer>(file, &file->audio) : nullptr);
+    }
 
 private:
     struct UndoStep {
@@ -156,6 +165,7 @@ private:
     bool reorderPending_ = false;
     double reorderAt_ = 0.0;
     std::deque<UndoStep> undo_, redo_;
+    WorkingFileSlot workingFile_;
 };
 
 } // namespace dsptb
