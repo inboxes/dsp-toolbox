@@ -6,6 +6,9 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ### Added
 
+- **Record** button and PRE/POST choice in the Transport panel.
+- `dsptb-cli render --working-file`: the file modules see as the working file, such as a backing track.
+- Modules can read the working file (`acquire_working_file` in the host API). With the file playing beside the mic, `transport.position_seconds` is the file position.
 - **Input routes:** the file and the mic can each go to the chain, straight to the output at their own volume, or off. **Mic + track** is a one-click setup for singing along: the mic goes through the chain and the file plays as a backing track.
 
 ### Changed

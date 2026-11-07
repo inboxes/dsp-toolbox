@@ -2,6 +2,7 @@
 // the difference. One Strength control sets how much and how fast.
 
 #include "correction_smoother.hpp"
+#include "key_timeline.hpp"
 #include "pitch_graph.hpp"
 #include "pitch_tracker.hpp"
 #include "target_picker.hpp"
@@ -116,6 +117,10 @@ public:
         const float* right = b.numChannels() > 1 ? b.channel(1) : left;
         for (uint32_t i = 0; i < n; ++i)
             mono_[i] = 0.5f * (left[i] + right[i]);
+
+        if (timeline_.update()) // the key job finished: count from the new timeline
+            ++timelineSeen_;
+        blockPosition_ = b.transport().position_seconds;
 
         // Split at hop ends, so a new estimate takes effect at the sample it was made from.
         for (uint32_t done = 0; done < n;) {
@@ -239,6 +244,8 @@ private:
         const float hopDb = power > 1e-20 ? static_cast<float>(10.0 * std::log10(power)) : -200.0f;
         tracked_ = tracker_.update(result.hz, result.voiced, hopDb, config);
 
+        detected_.store(keyAt(blockPosition_ + static_cast<double>(clock - b.transport().sample_clock) / sampleRate_),
+                        std::memory_order_relaxed);
         const Key key = effectiveKey(b.paramInt(kKeySource) == kManual, std::clamp(b.paramInt(kKey), 0, 11),
                                      static_cast<Scale>(std::clamp(b.paramInt(kScale), 0, 2)), detectedKey());
         const int target = picker_.pick(tracked_.midi, tracked_.voiced, key, b.param(kNoteHold));
@@ -256,6 +263,39 @@ private:
 
     enum KeyStatus : int { kNoFile, kDetecting, kDone };
     static constexpr size_t kKeyChunk = 65536;
+    // Songs change key, so the key is found for overlapping windows as well as for the whole file.
+    static constexpr double kWindowSeconds = 10.0;
+    static constexpr double kWindowHopSeconds = 5.0;
+    static constexpr size_t kMaxWindows = 4096; // over five hours
+
+    // One packed key per window: bit 0 valid, 1 confident, 2 minor, bits 8-11 the root. Fixed size, so handing it
+    // to the audio thread never allocates.
+    struct Timeline {
+        uint32_t count = 0;
+        uint16_t keys[kMaxWindows] = {};
+    };
+
+    static uint32_t pack(const DetectedKey& k) {
+        return k.valid ? 1u | (k.confident ? 2u : 0u) | (k.scale == Scale::Minor ? 4u : 0u) |
+                             (static_cast<uint32_t>(k.root) << 8)
+                       : 0u;
+    }
+
+    // Audio thread: the key at a position in the file.
+    uint32_t keyAt(double seconds) const noexcept {
+        const Timeline& t = timeline_.read();
+        if (t.count == 0)
+            return 0;
+        return t.keys[keyWindowAt(seconds, kWindowSeconds, kWindowHopSeconds, t.count)];
+    }
+
+    void publishTimeline(const std::vector<DetectedKey>& keys) {
+        Timeline& slot = timeline_.writeSlot();
+        slot.count = static_cast<uint32_t>(std::min(keys.size(), kMaxWindows));
+        for (uint32_t i = 0; i < slot.count; ++i)
+            slot.keys[i] = static_cast<uint16_t>(pack(keys[i]));
+        timeline_.publish();
+    }
 
     void startKeyJob() {
         stopKey_.store(false, std::memory_order_relaxed);
@@ -287,42 +327,85 @@ private:
     // Reads the whole working file. False when it stopped early, so the caller tries again.
     bool detectKey(uint64_t generation) {
         if (generation == 0) {
-            detected_.store(0, std::memory_order_release);
+            publishTimeline({});
+            keyChanges_.store(0, std::memory_order_relaxed);
             keyStatus_.store(kNoFile, std::memory_order_release);
             return true;
         }
         keyStatus_.store(kDetecting, std::memory_order_release);
         WorkingFile file(host());
         if (!file) {
-            detected_.store(0, std::memory_order_release);
+            publishTimeline({});
+            keyChanges_.store(0, std::memory_order_relaxed);
             keyStatus_.store(kNoFile, std::memory_order_release);
             return true;
         }
         const dsptb_file_view& v = file.view();
-        dsp::KeyDetector detector(v.sample_rate);
+        const auto windowFrames = static_cast<uint64_t>(kWindowSeconds * v.sample_rate);
+        const auto hopFrames = static_cast<uint64_t>(kWindowHopSeconds * v.sample_rate);
+        const auto cancelled = [&] {
+            return stopKey_.load(std::memory_order_relaxed) || host().workingFileGeneration() != v.generation;
+        };
+        // Mono of [from, to) through a fresh detector.
         std::vector<float> mono(kKeyChunk);
-        for (uint64_t at = 0; at < v.num_frames; at += kKeyChunk) {
-            if (stopKey_.load(std::memory_order_relaxed) || host().workingFileGeneration() != v.generation)
-                return false; // a new file arrived, or the module is going away
-            const auto n = static_cast<size_t>(std::min<uint64_t>(kKeyChunk, v.num_frames - at));
-            for (size_t i = 0; i < n; ++i)
-                mono[i] = 0.5f * (file.channel(0)[at + i] + file.channel(1)[at + i]);
-            detector.push(mono.data(), n);
+        const auto detect = [&](uint64_t from, uint64_t to, dsp::KeyResult& out) {
+            dsp::KeyDetector detector(v.sample_rate);
+            for (uint64_t at = from; at < to; at += kKeyChunk) {
+                if (cancelled())
+                    return false;
+                const auto n = static_cast<size_t>(std::min<uint64_t>(kKeyChunk, to - at));
+                for (size_t i = 0; i < n; ++i)
+                    mono[i] = 0.5f * (file.channel(0)[at + i] + file.channel(1)[at + i]);
+                detector.push(mono.data(), n);
+            }
+            out = detector.result();
+            return true;
+        };
+
+        dsp::KeyResult whole;
+        if (!detect(0, v.num_frames, whole))
+            return false; // a new file arrived, or the module is going away
+        if (whole.valid)
+            logKey("Key detected", whole);
+
+        std::vector<KeyWindow> windows;
+        for (uint64_t start = 0; windows.size() < kMaxWindows; start += hopFrames) {
+            const uint64_t end = std::min(v.num_frames, start + windowFrames);
+            dsp::KeyResult r;
+            if (!detect(start, end, r))
+                return false;
+            windows.push_back({r.valid, r.confident, r.root, r.mode == dsp::KeyMode::Minor ? Scale::Minor : Scale::Major});
+            if (end == v.num_frames)
+                break;
         }
-        const dsp::KeyResult r = detector.result();
-        uint32_t packed = 0;
-        if (r.valid) {
-            packed = 1u | (r.confident ? 2u : 0u) | (r.mode == dsp::KeyMode::Minor ? 4u : 0u) |
-                     (static_cast<uint32_t>(r.root) << 8);
-            char line[160];
-            std::snprintf(line, sizeof(line), "Key detected: %s %s (%s, r=%.2f, margin=%.2f)", kKeys[r.root],
-                          r.mode == dsp::KeyMode::Minor ? "minor" : "major", r.confident ? "confident" : "not confident",
-                          static_cast<double>(r.correlation), static_cast<double>(r.margin));
-            host().log(DSPTB_LOG_INFO, line);
-        }
-        detected_.store(packed, std::memory_order_release);
+        std::vector<DetectedKey> keys = resolveKeyTimeline(windows);
+        // No confident window, but the whole file is: one key throughout (a short file is a single window anyway).
+        if ((keys.empty() || !keys.front().valid) && whole.valid && whole.confident)
+            keys.assign(std::max<size_t>(1, windows.size()),
+                        {true, true, whole.root, whole.mode == dsp::KeyMode::Minor ? Scale::Minor : Scale::Major});
+        int changes = 0;
+        for (size_t i = 1; i < keys.size(); ++i)
+            if (keys[i].valid && keys[i - 1].valid &&
+                sameNotesId(keys[i].root, keys[i].scale) != sameNotesId(keys[i - 1].root, keys[i - 1].scale)) {
+                ++changes;
+                char line[96];
+                const double at = (static_cast<double>(i) - 0.5) * kWindowHopSeconds + 0.5 * kWindowSeconds;
+                std::snprintf(line, sizeof(line), "Key change at %.1f s: %s %s", at, kKeys[keys[i].root],
+                              keys[i].scale == Scale::Minor ? "minor" : "major");
+                host().log(DSPTB_LOG_INFO, line);
+            }
+        publishTimeline(keys);
+        keyChanges_.store(changes, std::memory_order_relaxed);
         keyStatus_.store(kDone, std::memory_order_release);
         return true;
+    }
+
+    void logKey(const char* what, const dsp::KeyResult& r) const {
+        char line[160];
+        std::snprintf(line, sizeof(line), "%s: %s %s (%s, r=%.2f, margin=%.2f)", what, kKeys[r.root],
+                      r.mode == dsp::KeyMode::Minor ? "minor" : "major", r.confident ? "confident" : "not confident",
+                      static_cast<double>(r.correlation), static_cast<double>(r.margin));
+        host().log(DSPTB_LOG_INFO, line);
     }
 
     Key shownKey() const {
@@ -351,8 +434,9 @@ private:
             const int status = keyStatus_.load(std::memory_order_acquire);
             c.label(status == kDetecting     ? "Detecting key..."
                     : !detected.valid        ? "No track loaded: using Chromatic"
-                    : detected.confident ? "Detected"
-                                         : "Not sure: using Chromatic");
+                    : !detected.confident ? "Not sure: using Chromatic"
+                    : keyChanges_.load(std::memory_order_relaxed) > 0 ? "Detected: follows the key changes"
+                                                                      : "Detected");
         } else if (detected.valid) {
             char text[48];
             std::snprintf(text, sizeof(text), "Use detected (%s %s)", kKeys[detected.root],
@@ -391,7 +475,7 @@ private:
     uint32_t samplesUntilHop_ = 256;
     double hopEnergy_ = 0.0;
 
-    // Key detection publishes one packed value, so a reader never sees half of a result.
+    // The key at the playback position, written by the audio thread for the panel.
     std::atomic<uint32_t> detected_{0};
     rt::SpscRing<PitchFrame> frames_{1024};
 
@@ -401,6 +485,10 @@ private:
     std::mutex wakeMutex_;
     std::condition_variable wake_;
     std::atomic<int> keyStatus_{kNoFile};
+    std::atomic<int> keyChanges_{0};
+    rt::TripleBuffer<Timeline> timeline_; // key thread writes, audio thread reads
+    uint64_t timelineSeen_ = 0;
+    double blockPosition_ = 0.0;
 
     // UI thread only.
     PitchGraph graph_;

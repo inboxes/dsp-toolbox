@@ -1,6 +1,6 @@
 # Pure logic, so the unit tests can link it without the SDK or a host.
 add_library(dsptb_autotune_core STATIC
-  core/pitch_tracker.cpp core/target_picker.cpp core/correction_smoother.cpp)
+  core/pitch_tracker.cpp core/target_picker.cpp core/correction_smoother.cpp core/key_timeline.cpp)
 target_include_directories(dsptb_autotune_core PUBLIC core)
 target_compile_features(dsptb_autotune_core PUBLIC cxx_std_20)
 target_link_libraries(dsptb_autotune_core PRIVATE dsptb_warnings)

@@ -97,7 +97,7 @@ typedef struct dsptb_transport {
   uint32_t struct_size;
   dsptb_source source;
   uint32_t playing;          /* file source playing, or 1 for mic/offline */
-  double   position_seconds; /* file position at block start (offline: render position); mic: seconds since source start */
+  double   position_seconds; /* file position at block start, also when the file plays beside the mic (offline: render position); mic alone: seconds since source start */
   uint64_t sample_clock;     /* frames since engine start; monotonic */
   uint32_t seeked;           /* 1 on the first block after a seek/loop wrap */
 } dsptb_transport;

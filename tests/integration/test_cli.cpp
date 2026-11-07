@@ -105,6 +105,25 @@ TEST_CASE("cli: T8 Autotune finds the key of the render input and logs it") {
     CHECK(r.out.find("Key detected: A minor (confident") != std::string::npos);
 }
 
+TEST_CASE("cli: Autotune follows a key change in the render input") {
+    const fs::path chords = dir() / "keychange.wav";
+    REQUIRE(runCli("gen chords --chords Am,Dm,E,Am,Am,Dm,E,Am,Am,Dm,E,Am,Am,Dm,E,Am,Am,Dm,E,Am,"
+                   "D,G,A,D,D,G,A,D,D,G,A,D,D,G,A,D,D,G,A,D --out " + q(chords))
+                .exitCode == 0);
+    const fs::path session = dir() / "keychange.dsptb.json";
+    {
+        std::ofstream f(session);
+        f << R"({"format":"dsptb-session","version":2,"instances":[{"module":"org.dsptb.autotune",)"
+          << R"("params":{"key_source":0}}]})";
+    }
+    const RunResult r = runCli("render --session " + q(session) + " --in " + q(chords) + " --out " +
+                               q(dir() / "keychange_out.wav"));
+    INFO(r.out);
+    CHECK(r.exitCode == 0);
+    CHECK(r.out.find("Key change at") != std::string::npos);
+    CHECK(r.out.find(": D major") != std::string::npos);
+}
+
 TEST_CASE("cli: compare exits 0 for identical files and 1 above the tolerance") {
     const fs::path a = dir() / "a.wav", b = dir() / "b.wav", c = dir() / "c.wav";
     REQUIRE(runCli("gen sine --dbfs -6 --seconds 1 --out " + q(a)).exitCode == 0);

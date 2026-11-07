@@ -383,8 +383,10 @@ void Engine::processChunk(const float* in, float* out, uint32_t n) noexcept {
         transport.source = micSelected ? DSPTB_SOURCE_MIC : DSPTB_SOURCE_FILE;
         transport.playing = (micSelected || playRequested) ? 1u : 0u;
         const double sr = static_cast<double>(sampleRate_);
-        transport.position_seconds = micSelected ? static_cast<double>(sampleClock_ - micStartClock_) / sr
-                                                 : static_cast<double>(chunkStartPos) / sr;
+        // With the file playing as a backing track, its position is what a module can line up with.
+        const bool fileHeard = !micSelected || fileOutputGain_.target() > 0.0f;
+        transport.position_seconds = fileHeard ? static_cast<double>(chunkStartPos) / sr
+                                               : static_cast<double>(sampleClock_ - micStartClock_) / sr;
         transport.sample_clock = sampleClock_;
         transport.seeked = seekedFlag_ ? 1u : 0u;
 

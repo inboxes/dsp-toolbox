@@ -3,6 +3,7 @@
 #include <doctest/doctest.h>
 
 #include "correction_smoother.hpp"
+#include "key_timeline.hpp"
 #include "pitch_tracker.hpp"
 #include "target_picker.hpp"
 
@@ -23,6 +24,42 @@ TEST_CASE("autotune: effective key") {
         CHECK(effectiveKey(false, 2, Scale::Major, none).scale == Scale::Chromatic);
         CHECK(effectiveKey(false, 2, Scale::Major, unsure).scale == Scale::Chromatic);
         CHECK(effectiveKey(false, 2, Scale::Major, sure) == Key{9, Scale::Minor});
+    }
+}
+
+TEST_CASE("autotune: key timeline") {
+    const KeyWindow gMinor{true, true, 7, Scale::Minor};
+    const KeyWindow gMajor{true, true, 7, Scale::Major};
+    const KeyWindow eMinor{true, true, 4, Scale::Minor};
+    const KeyWindow dMinor{true, true, 2, Scale::Minor};
+    const KeyWindow unsure{true, false, 2, Scale::Major};
+
+    SUBCASE("one doubtful or lone window doesn't change the key") {
+        const auto keys = resolveKeyTimeline({gMinor, unsure, dMinor, gMinor, gMinor});
+        for (const DetectedKey& k : keys)
+            CHECK(k.root == 7);
+    }
+    SUBCASE("two windows in a row change it, from the first of them") {
+        const auto keys = resolveKeyTimeline({gMinor, gMinor, gMajor, eMinor, gMajor});
+        CHECK(keys[1].scale == Scale::Minor);
+        CHECK(keys[2].valid);
+        CHECK(keys[2].root == 7);
+        CHECK(keys[2].scale == Scale::Major);
+        CHECK(sameNotesId(keys[3].root, keys[3].scale) == sameNotesId(7, Scale::Major)); // E minor: same notes
+    }
+    SUBCASE("before the first confident window, its key applies") {
+        const auto keys = resolveKeyTimeline({unsure, unsure, gMinor});
+        CHECK(keys[0].valid);
+        CHECK(keys[0].root == 7);
+    }
+    SUBCASE("nothing confident: no key") {
+        CHECK_FALSE(resolveKeyTimeline({unsure, unsure})[0].valid);
+    }
+    SUBCASE("finding the window for a position") {
+        CHECK(keyWindowAt(0.0, 10.0, 5.0, 10) == 0);
+        CHECK(keyWindowAt(7.4, 10.0, 5.0, 10) == 0);
+        CHECK(keyWindowAt(7.6, 10.0, 5.0, 10) == 1);
+        CHECK(keyWindowAt(1000.0, 10.0, 5.0, 10) == 9);
     }
 }
 
