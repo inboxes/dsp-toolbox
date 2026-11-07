@@ -1,0 +1,16 @@
+cmake_minimum_required(VERSION 3.28)
+project(@TARGET@ VERSION 0.1.0 LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+enable_testing()
+
+# Inside the DSP Toolbox source tree, the SDK target already exists.
+if(NOT TARGET dsptb_sdk)
+  find_package(dsptb_sdk CONFIG REQUIRED)
+endif()
+
+dsptb_add_module(@TARGET@
+  ID @MODULE_ID@
+  SOURCES src/@TARGET@.cpp)

@@ -1,0 +1,17 @@
+# @MODULE_NAME@
+
+## Build
+
+From a Visual Studio x64 developer prompt, with `<sdk>` as the unzipped SDK folder:
+
+```powershell
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=<sdk>
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+The package folder is `build/bin/modules/@MODULE_ID@/`. To install it, zip that folder and use **Install from .zip…** in the app.
+
+## Licence
+
+`module.json` says `@LICENSE@`. Open source is encouraged. For a closed-source module, read `MODULE-EXCEPTION.md` in the SDK first.

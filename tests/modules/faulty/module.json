@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "test.faulty",
+  "name": "Faulty (test)",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "dsptb_test_faulty.dll",
+  "modules": [{"id": "test.faulty", "kind": "processor"}],
+  "author": "DSP Toolbox tests",
+  "license": "GPL-3.0-only",
+  "description": "Test fixture: misbehaves on request."
+}

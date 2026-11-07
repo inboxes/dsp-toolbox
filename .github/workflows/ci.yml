@@ -1,0 +1,165 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Fork PRs run with a read-only token anyway; this keeps same-repo runs to the same access.
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [windows-debug, windows-release]
+    env:
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      # Steam Audio (181 MB) is downloaded once by cmake/FetchSteamAudio.cmake, hash-checked, and cached here.
+      - name: Cache Steam Audio
+        uses: actions/cache@v4
+        with:
+          path: |
+            build/_downloads
+            build/_deps/steamaudio-4.8.1
+          key: steamaudio-4.8.1-${{ hashFiles('cmake/FetchSteamAudio.cmake') }}
+
+      - name: Create binary cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+
+      # The ASIO SDK is downloaded by tools/fetch-asio-sdk.ps1 and must never be committed.
+      - name: No ASIO SDK files in git
+        shell: pwsh
+        run: |
+          $hits = git ls-files | Where-Object { $_ -match '(^|/)(asio-sdk|ASIOSDK)/' -or $_ -match '(^|/)(asio|asiodrvr|iasiodrv|asiosys)\.(h|cpp)$' }
+          if ($hits) { Write-Error "ASIO SDK files are tracked:`n$($hits -join "`n")"; exit 1 }
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+
+      - name: Test
+        run: ctest --preset ${{ matrix.preset }}
+
+      - name: Engine benchmark (report only)
+        shell: pwsh
+        run: build/${{ matrix.preset }}/bin/dsptb-cli.exe bench --block 256 --seconds 10
+
+      - name: N1 benchmark, Spatializer x8 + Spectrogram + Level Meter (report only; the CI runner is slower than the target)
+        shell: pwsh
+        run: build/${{ matrix.preset }}/bin/dsptb-cli.exe bench --session tests/integration/sessions/n1_perf.dsptb.json --block 256 --seconds 10
+
+      - name: Smoke test, 300 frames (release only)
+        if: matrix.preset == 'windows-release'
+        shell: pwsh
+        env:
+          DSPTB_DATA_DIR: ${{ github.workspace }}/build/ci-data
+        run: |
+          $p = Start-Process -FilePath build/windows-release/bin/DSPToolbox.exe -ArgumentList '--smoke-test','300' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { if (Test-Path "$env:DSPTB_DATA_DIR\logs\dsptb.log") { Get-Content "$env:DSPTB_DATA_DIR\logs\dsptb.log" }; exit $p.ExitCode }
+
+      - name: Screenshots (release only)
+        if: matrix.preset == 'windows-release'
+        shell: pwsh
+        env:
+          DSPTB_DATA_DIR: ${{ github.workspace }}/build/ci-data
+        run: |
+          New-Item -ItemType Directory -Force build/screenshots | Out-Null
+          $p = Start-Process -FilePath build/windows-release/bin/DSPToolbox.exe -ArgumentList '--screenshot','build/screenshots/default.png' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+          $p = Start-Process -FilePath build/windows-release/bin/DSPToolbox.exe -ArgumentList '--screenshot','build/screenshots/scale150.png','--ui-scale','150' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+          $p = Start-Process -FilePath build/windows-release/bin/DSPToolbox.exe -ArgumentList '--screenshot','build/screenshots/gain.png','--frames','700','--test-action','tone','--test-action','play','--test-action','add:org.dsptb.gain','--test-action','param:gain_db:-6' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+          # Real-time audio feeds the analyzer, so this one needs a few seconds of frames.
+          $p = Start-Process -FilePath build/windows-release/bin/DSPToolbox.exe -ArgumentList '--screenshot','build/screenshots/spectrogram.png','--frames','9000','--test-action','tone','--test-action','play','--test-action','add:org.dsptb.spectrogram' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+          $p = Start-Process -FilePath build/windows-release/bin/DSPToolbox.exe -ArgumentList '--screenshot','build/screenshots/spatializer.png','--frames','6000','--test-action','tone','--test-action','play','--test-action','add:org.dsptb.spatializer' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { exit $p.ExitCode }
+          $p = Start-Process -FilePath build/windows-release/bin/DSPToolbox.exe -ArgumentList '--screenshot','build/screenshots/levelmeter.png','--frames','5000','--test-action','tone','--test-action','play','--test-action','add:org.dsptb.levelmeter' -PassThru -Wait
+          exit $p.ExitCode
+
+      # The app and its bundled modules share one version, so a release can't stop at the check on its tag.
+      - name: Version numbers agree
+        if: matrix.preset == 'windows-release'
+        shell: pwsh
+        run: |
+          $v = [regex]::Match((Get-Content CMakeLists.txt -Raw), 'project\(dsptb VERSION (\S+)').Groups[1].Value
+          $bundled = Get-ChildItem modules/*/CMakeLists.txt | Where-Object { (Get-Content $_ -Raw) -match 'DISTRIBUTION\s+BUNDLED' }
+          $files = @('vcpkg.json') + @($bundled | ForEach-Object { Join-Path $_.DirectoryName 'module.json' })
+          $bad = $files | Where-Object { (Get-Content $_ -Raw | ConvertFrom-Json).version -ne $v }
+          if ($bad) { Write-Error "Not at version ${v}:`n$($bad -join "`n")"; exit 1 }
+
+      - name: Upload screenshots
+        if: always() && matrix.preset == 'windows-release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: build/screenshots/*.png
+          if-no-files-found: warn
+
+  # The published configuration: it needs the ASIO SDK, which is downloaded by pinned hash and never committed.
+  asio:
+    runs-on: windows-2022
+    env:
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Create binary cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+
+      - name: Fetch the ASIO SDK
+        shell: pwsh
+        run: tools/fetch-asio-sdk.ps1
+
+      - name: Configure
+        run: cmake --preset windows-release-asio
+
+      - name: Build
+        run: cmake --build --preset windows-release-asio
+
+      - name: Test
+        run: ctest --preset windows-release-asio
+
+      - name: No ASIO SDK files in git
+        shell: pwsh
+        run: |
+          $hits = git ls-files | Where-Object { $_ -match '(^|/)(asio-sdk|ASIOSDK)/' -or $_ -match '(^|/)(asio|asiodrvr|iasiodrv|asiosys)\.(h|cpp)$' }
+          if ($hits) { Write-Error "ASIO SDK files are tracked:`n$($hits -join "`n")"; exit 1 }

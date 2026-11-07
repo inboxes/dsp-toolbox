@@ -1,0 +1,32 @@
+# Build output
+/build/
+/out/
+/vcpkg_installed/
+CMakeUserPresets.json
+*.user
+.vs/
+.vscode/
+*.pdb
+*.ilk
+
+# Private modules — never commit
+/modules-private/
+
+# Generated test audio and screenshots
+*.wav
+*.flac
+*.mp3
+/tests/**/out/
+*.png
+!/docs/**/*.png
+!/assets/**/*.png
+
+# Downloaded SDKs
+/third_party/steamaudio/
+/third_party/asiosdk/
+
+# Steinberg ASIO SDK (downloaded by tools/fetch-asio-sdk.ps1, never committed)
+/third_party/asio-sdk/
+
+# Release output (tools/make-release.ps1)
+/dist/

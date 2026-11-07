@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "id": "test.private",
+  "name": "Private (test)",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "dsptb_test_private.dll",
+  "modules": [
+    {"id": "test.private", "kind": "processor"}
+  ],
+  "author": "DSP Toolbox tests",
+  "license": "GPL-3.0-only",
+  "description": "Test fixture: a private module that must never reach a release package."
+}

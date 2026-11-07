@@ -1,0 +1,19 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "dsptb",
+  "version": "0.1.0",
+  "dependencies": [
+    {
+      "name": "imgui",
+      "features": ["docking-experimental", "dx11-binding", "win32-binding", "wchar32"]
+    },
+    "miniaudio",
+    "nlohmann-json",
+    "spdlog",
+    "miniz",
+    "cli11",
+    "doctest",
+    "pffft",
+    "libebur128"
+  ]
+}

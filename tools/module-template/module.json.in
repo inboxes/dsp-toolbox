@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "@MODULE_ID@",
+  "name": "@MODULE_NAME@",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "@TARGET@.dll",
+  "modules": [
+    {"id": "@MODULE_ID@", "kind": "@KIND@"}
+  ],
+  "author": "Unknown",
+  "license": "@LICENSE@",
+  "description": "Starting point for a @KIND@.",
+  "minHostVersion": "0.1.0"
+}

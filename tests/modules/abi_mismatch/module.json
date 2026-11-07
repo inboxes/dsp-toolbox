@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "test.abimismatch",
+  "name": "ABI mismatch (test)",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "dsptb_test_abi_mismatch.dll",
+  "modules": [{"id": "test.abimismatch", "kind": "processor"}],
+  "author": "DSP Toolbox tests",
+  "license": "GPL-3.0-only",
+  "description": "Test fixture: the DLL claims a different ABI version than the manifest."
+}

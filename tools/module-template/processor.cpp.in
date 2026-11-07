@@ -1,0 +1,48 @@
+// @MODULE_NAME@ (@MODULE_ID@). A starting point: a smoothed gain. Replace process() with your own DSP.
+//
+// process() runs on the audio thread: no allocation, locks, file I/O, logging or exceptions there.
+
+#include <dsptb/sdk.hpp>
+
+DSPTB_DEFINE_RT_GUARD();
+
+class @CLASS@ final : public dsptb::Processor<@CLASS@> {
+public:
+    static constexpr dsptb::ModuleInfo info{.id = "@MODULE_ID@",
+                                            .name = "@MODULE_NAME@",
+                                            .version = "0.1.0",
+                                            .vendor = "Unknown",
+                                            .description = "Starting point for a processor.",
+                                            .caps = DSPTB_CAP_REALTIME | DSPTB_CAP_OFFLINE};
+    static constexpr auto params =
+        dsptb::params(dsptb::Float("gain_db", "Gain", "dB", -60.f, 24.f, 0.f).smoothing(20.f));
+
+    enum Param : uint32_t { kGainDb = 0 };
+
+    bool prepare(const dsptb::PrepareInfo& p) override {
+        sampleRate_ = p.sampleRate;
+        first_ = true;
+        return true;
+    }
+
+    void process(dsptb::ProcessBlock& b) override {
+        const float target = dsptb::dbToGain(b.param(kGainDb));
+        if (first_) {
+            gain_.reset(sampleRate_, 20.0, target);
+            first_ = false;
+        }
+        gain_.setTarget(target);
+        for (uint32_t i = 0; i < b.frames(); ++i) {
+            const float g = gain_.next();
+            for (float* ch : b.channels())
+                ch[i] *= g;
+        }
+    }
+
+private:
+    double sampleRate_ = 48000.0;
+    bool first_ = true;
+    dsptb::rt::SmoothedValue gain_;
+};
+
+DSPTB_REGISTER_MODULES(@CLASS@);

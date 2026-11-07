@@ -1,0 +1,157 @@
+#pragma once
+
+#include "module_registry.hpp"
+
+#include <dsptb/plugin_abi.h>
+
+#include <atomic>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+namespace dsptb {
+
+using InstanceId = uint32_t;
+
+// Parameter values of one instance: the UI writes atomics, the audio thread copies them
+// into a plain array at the start of each block and hands that to process(). Int, bool and enum values are
+// stored as floats and kept rounded.
+class ParamBlock {
+public:
+    void init(const dsptb_param_desc* descs, uint32_t count);
+    uint32_t size() const { return count_; }
+    const dsptb_param_desc& desc(uint32_t i) const { return descs_[i]; }
+    int indexOf(const std::string& id) const; // -1 when unknown
+
+    float get(uint32_t i) const { return values_[i].load(std::memory_order_relaxed); }
+    // Clamps to the range and rounds discrete types. Returns the stored value.
+    float set(uint32_t i, float v);
+    float defaultValue(uint32_t i) const { return descs_[i].default_value; }
+    void resetToDefaults();
+
+    // audio thread
+    void copyToRt() noexcept {
+        for (uint32_t i = 0; i < count_; ++i)
+            rt_[i] = values_[i].load(std::memory_order_relaxed);
+    }
+    const float* rtValues() const noexcept { return rt_.data(); }
+
+private:
+    const dsptb_param_desc* descs_ = nullptr;
+    uint32_t count_ = 0;
+    std::unique_ptr<std::atomic<float>[]> values_;
+    std::vector<float> rt_;
+};
+
+// What a module may ask of the host (the UI-thread half of dsptb_host_api). Implemented by SessionModel and
+// by the simple hosts used offline and by `validate`.
+class IModuleHost {
+public:
+    virtual ~IModuleHost() = default;
+    virtual void moduleLog(class ModuleInstance& who, dsptb_log_level level, const char* utf8) = 0;
+    virtual void moduleSetParam(class ModuleInstance& who, uint32_t index, float value) = 0;
+    virtual void moduleMarkStateDirty(class ModuleInstance& who, const char* undoLabel) = 0;
+};
+
+enum class FaultReason : int { None = 0, Exception = 1, NonFinite = 2, Create = 3 };
+
+// One live module instance: the module's own object plus everything the host keeps next to it. Shared between
+// chain snapshots with shared_ptr; destroyed (on whichever thread drops the last reference, in practice the
+// UI thread during collectGarbage) only after no snapshot refers to it.
+class ModuleInstance {
+public:
+    // Creates the module object (UI thread). Returns null with `error` on failure.
+    static std::shared_ptr<ModuleInstance> create(InstanceId id, ModulePackage& pkg,
+                                                  const dsptb_module_desc& desc, IModuleHost* host,
+                                                  std::string& error);
+    ~ModuleInstance();
+    ModuleInstance(const ModuleInstance&) = delete;
+    ModuleInstance& operator=(const ModuleInstance&) = delete;
+
+    InstanceId id() const { return id_; }
+    const std::string& moduleId() const { return moduleId_; }
+    const dsptb_module_desc& desc() const { return *desc_; }
+    ModulePackage& package() const { return *pkg_; }
+    dsptb_kind kind() const { return desc_->kind; }
+    ParamBlock& params() { return params_; }
+    const ParamBlock& params() const { return params_; }
+    void setHost(IModuleHost* host) { host_ = host; }
+    IModuleHost* host() const { return host_; }
+
+    // ---- UI / worker thread ----
+    // Prepares the module and sizes the host-side buffers. The instance must not be processing.
+    bool prepare(double sampleRate, uint32_t maxBlockFrames, bool offline, std::string& error);
+    bool prepared() const { return prepared_; }
+    double sampleRate() const { return sampleRate_; }
+    uint32_t maxBlockFrames() const { return maxBlock_; }
+    uint32_t latencyFrames() const { return latency_; }
+    // Asks the module again (for the conformance check that latency stays constant).
+    uint32_t queryLatencyFrames() const;
+    uint32_t tailFrames() const;
+    bool saveState(std::string& json) const; // false if the module has no state or failed
+    bool loadState(const std::string& json);
+    void draw(const dsptb_canvas_api* canvas); // guarded; a crash faults the instance
+    uint32_t rtGuardHits() const { return pkg_->guardViolations ? pkg_->guardViolations() : 0; }
+
+    // ---- fault state (any thread) ----
+    bool faulted() const { return fault_.load(std::memory_order_acquire) != 0; }
+    FaultReason faultReason() const {
+        return static_cast<FaultReason>(fault_.load(std::memory_order_acquire));
+    }
+    void markFaulted(FaultReason r) { fault_.store(static_cast<int>(r), std::memory_order_release); }
+
+    // ---- audio thread (or the offline worker): all RT-safe ----
+    // These wrap the module's callbacks in the SEH trampoline. They return false when the module faulted.
+    bool callProcess(float* l, float* r, uint32_t frames, const dsptb_transport& transport) noexcept;
+    bool callReset() noexcept;
+
+    // ---- analysis thread (or the CLI): guarded like process(), but allocation is allowed ----
+    // `ch` holds two planar channels of `frames` samples. Returns false when the module faulted. Parameter
+    // values are snapshotted on every call.
+    bool callAnalyze(const float* l, const float* r, uint32_t frames, uint64_t firstFrameClock,
+                     uint32_t droppedFrames, dsptb_tap tap) noexcept;
+    // Optional frame dump for `analyze --dump-frames`; false when the module has none.
+    bool dumpFrames(std::string& json) const;
+
+    // State owned by the audio side: bypass ramp, dry-path delay and fault detection. Only the thread that
+    // processes the chain may touch it.
+    struct RtState {
+        float wet = 0.0f;                  // 0 = fully bypassed, 1 = fully active; ramps over 20 ms
+        float rampStep = 0.0f;             // per-sample change of `wet`
+        uint32_t nonFiniteRun = 0;         // consecutive blocks with non-finite output
+        std::vector<float> dryL, dryR;     // delayed dry copy of the block, max block size
+        std::vector<float> delayL, delayR; // latency-sized delay lines (empty when latency == 0)
+        uint32_t delayPos = 0;
+    } rt;
+
+private:
+    ModuleInstance() = default;
+
+    InstanceId id_ = 0;
+    std::string moduleId_;
+    std::string moduleDirUtf8_;
+    ModulePackage* pkg_ = nullptr;
+    const dsptb_module_desc* desc_ = nullptr;
+    IModuleHost* host_ = nullptr;
+    void* self_ = nullptr;
+    dsptb_host_api hostApi_{};
+    ParamBlock params_;
+    bool prepared_ = false;
+    double sampleRate_ = 0.0;
+    uint32_t maxBlock_ = 0;
+    uint32_t latency_ = 0;
+    std::atomic<int> fault_{0};
+};
+
+// A host with no UI: logs through spdlog and applies set_param directly. Used offline and by `validate`.
+class SimpleModuleHost final : public IModuleHost {
+public:
+    void moduleLog(ModuleInstance& who, dsptb_log_level level, const char* utf8) override;
+    void moduleSetParam(ModuleInstance& who, uint32_t index, float value) override {
+        who.params().set(index, value);
+    }
+    void moduleMarkStateDirty(ModuleInstance&, const char*) override {}
+};
+
+} // namespace dsptb

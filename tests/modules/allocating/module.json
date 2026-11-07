@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "id": "test.allocating",
+  "name": "Allocating (test)",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "dsptb_test_allocating.dll",
+  "modules": [{"id": "test.allocating", "kind": "processor"}],
+  "author": "DSP Toolbox tests",
+  "license": "GPL-3.0-only",
+  "description": "Test fixture: allocates in process() when asked."
+}

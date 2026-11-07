@@ -1,0 +1,2 @@
+// The icon Windows shows for the exe, the window and the taskbar.
+1 ICON "../assets/app.ico"

@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "org.dsptb.gain",
+  "name": "Gain",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "gain.dll",
+  "modules": [
+    {"id": "org.dsptb.gain", "kind": "processor"}
+  ],
+  "author": "DSP Toolbox",
+  "license": "GPL-3.0-only",
+  "description": "Simple gain with smoothing, polarity invert and mute.",
+  "minHostVersion": "0.1.0"
+}

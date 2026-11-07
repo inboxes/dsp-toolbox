@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "id": "org.dsptb.spatializer",
+  "name": "3D Spatializer",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "spatializer.dll",
+  "modules": [
+    {"id": "org.dsptb.spatializer", "kind": "processor"}
+  ],
+  "author": "DSP Toolbox",
+  "license": "GPL-3.0-only",
+  "description": "Places up to 8 sources in 3D around the listener (binaural HRTF, for headphones). Uses Steam Audio (Apache-2.0).",
+  "minHostVersion": "0.1.0",
+  "paramHelp": {
+    "output_gain_db": "Overall level of the mix of all sources, after spatialization.",
+    "distance_atten": "Sources get quieter with distance (inverse distance: 6 dB per doubling beyond the reference distance).",
+    "min_distance_m": "Reference distance for attenuation: a source closer than this is not made louder, beyond it the level falls by 6 dB per doubling. Picking a range preset sets it (Near 0.1 m, Mid 1 m, Far 5 m). A small value makes close movement very audible.",
+    "air_absorption": "Distant sources lose high frequencies, as in real air. Strength is set by 'Air absorption amount'.",
+    "air_amount": "How strong the air absorption is, as a multiple of physical air (1x). Real air does almost nothing within a few metres, so the Near and Mid presets exaggerate it (20x and 5x) to make distance audible. Only the highest frequencies are affected, so try pink noise or hi-hats.",
+    "close_ild": "Makes the difference between the ears bigger for a source close to your head (nearer than about 1 m) on the Steam Audio and Mid/Far sets: the far ear gets quieter and darker, the near ear a little louder. 0 = off, 1 = default, 2 = twice as strong. The Near range's own sets are measured up close and are not changed.",
+    "hrtf_interp": "How the head-related filter is chosen between the measured directions.\nNearest: uses the single closest measurement. Cheapest, but a moving source can step or flutter slightly as it crosses from one measurement to the next.\nBilinear: blends the four closest measurements, so movement is smoother (a little more CPU). For a source that stands still the two sound almost the same.",
+    "spatial_blend": "1 = fully spatialized (HRTF). Lower values mix in the plain, unprocessed signal; 0 = the original sound in both ears."
+  }
+}
+

@@ -1,0 +1,80 @@
+name: release
+
+# Runs when a maintainer pushes a tag. Tags with a suffix (v0.1.0-rc.1) become pre-releases.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-2022
+    permissions:
+      contents: write # create the GitHub Release
+    env:
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ runner.os }}-release-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'tools/sofa/vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Create binary cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+
+      - name: Work out the version
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ github.ref_name }}' -replace '^v', ''
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      # Fetches the ASIO SDK by pinned hash, builds the published configuration and dsptb-sofa, checks that every
+      # version number agrees with the tag, and writes the zips and checksums to dist/.
+      - name: Build the packages
+        shell: pwsh
+        run: tools/make-release.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - name: Test
+        run: ctest --preset windows-release-asio
+
+      - name: Smoke test the unzipped app, outside the build tree
+        shell: pwsh
+        env:
+          DSPTB_DATA_DIR: ${{ runner.temp }}/smoke-data
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $dest = Join-Path $env:RUNNER_TEMP 'smoke'
+          Expand-Archive "dist/DSPToolbox-$version-win64.zip" $dest
+          $exe = Join-Path $dest "DSPToolbox-$version-win64/DSPToolbox.exe"
+          $p = Start-Process $exe -ArgumentList '--smoke-test', '300' -PassThru -Wait
+          if ($p.ExitCode -ne 0) { Get-Content "$env:DSPTB_DATA_DIR/logs/dsptb.log"; exit $p.ExitCode }
+
+      - name: Release notes from CHANGELOG.md
+        shell: pwsh
+        run: tools/changelog-section.ps1 -Version '${{ steps.version.outputs.version }}' -OutFile dist/notes.md
+
+      - name: Create the GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $files = @(Get-ChildItem dist -Filter "*$version*" | ForEach-Object FullName)
+          # Assign the array directly: an `if` expression would unwrap one item to a string, which splats as characters.
+          $pre = @()
+          if ($version -match '-') { $pre = @('--prerelease') }
+          gh release create '${{ github.ref_name }}' @files --title "DSP Toolbox $version" --notes-file dist/notes.md @pre

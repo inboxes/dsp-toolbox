@@ -1,0 +1,11 @@
+{
+  "format": "dsptb-session",
+  "version": 1,
+  "audio": {"sampleRate": 48000},
+  "instances": [
+    {"module": "org.dsptb.spatializer", "params": {"distance_atten": true, "air_absorption": true, "hrtf_interp": 1}, "state": {"sources": [{"name":"Source 1","motion":"orbit","input":"mono","orbit":{"shape":"circle","radius":1,"period_s":3,"elevation":-30,"direction":"cw"}},{"name":"Source 2","motion":"orbit","input":"left","orbit":{"shape":"figure8","radius":2.5,"period_s":4.7,"elevation":-20,"direction":"ccw"}},{"name":"Source 3","motion":"orbit","input":"right","orbit":{"shape":"circle","radius":4,"period_s":6.4,"elevation":-10,"direction":"cw"}},{"name":"Source 4","motion":"orbit","input":"mono","orbit":{"shape":"figure8","radius":5.5,"period_s":8.1,"elevation":0,"direction":"ccw"}},{"name":"Source 5","motion":"orbit","input":"left","orbit":{"shape":"circle","radius":7,"period_s":9.8,"elevation":10,"direction":"cw"}},{"name":"Source 6","motion":"orbit","input":"right","orbit":{"shape":"figure8","radius":8.5,"period_s":11.5,"elevation":20,"direction":"ccw"}},{"name":"Source 7","motion":"orbit","input":"mono","orbit":{"shape":"circle","radius":10,"period_s":13.2,"elevation":30,"direction":"cw"}},{"name":"Source 8","motion":"orbit","input":"left","orbit":{"shape":"figure8","radius":11.5,"period_s":14.9,"elevation":40,"direction":"ccw"}}]}},
+    {"module": "org.dsptb.spectrogram", "params": {"fft_size": 3}},
+    {"module": "org.dsptb.levelmeter"}
+  ]
+}
+

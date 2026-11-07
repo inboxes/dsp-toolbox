@@ -1,0 +1,57 @@
+name: dsp-common
+
+# Standalone build of modules/common.
+# The main ci.yml is Windows-only; this workflow also covers GCC.
+
+on:
+  pull_request:
+    paths:
+      - "modules/common/**"
+      - "sdk/include/dsptb/dsp/**"
+      - ".github/workflows/dsp-common.yml"
+  push:
+    branches: [main]
+    paths:
+      - "modules/common/**"
+      - "sdk/include/dsptb/dsp/**"
+      - ".github/workflows/dsp-common.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load MSVC environment
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache FetchContent downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            build-common/_deps/doctest-src
+            build-common/_deps/libebur128-src
+            build-common/_deps/pffft-src
+          key: dsp-common-deps-${{ runner.os }}-${{ hashFiles('modules/common/CMakeLists.txt') }}
+          restore-keys: |
+            dsp-common-deps-${{ runner.os }}-
+
+      - name: Configure (standalone)
+        run: cmake -S modules/common -B build-common -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build-common --parallel --config Release
+
+      - name: Test
+        run: ctest --test-dir build-common -C Release --output-on-failure

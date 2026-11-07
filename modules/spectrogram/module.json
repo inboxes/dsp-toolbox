@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "org.dsptb.spectrogram",
+  "name": "Spectrogram",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "spectrogram.dll",
+  "modules": [
+    {"id": "org.dsptb.spectrogram", "kind": "analyzer"}
+  ],
+  "author": "DSP Toolbox",
+  "license": "GPL-3.0-only",
+  "description": "Live scrolling spectrogram with an instantaneous spectrum profile.",
+  "minHostVersion": "0.1.0"
+}

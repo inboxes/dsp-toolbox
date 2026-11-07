@@ -1,0 +1,81 @@
+name: release-module
+
+# Runs when a maintainer pushes a tag such as module/spatializer/v0.1.0. A suffix (-rc.1) makes it a pre-release.
+on:
+  push:
+    tags: ['module/**']
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: windows-2022
+    permissions:
+      contents: write # create the GitHub Release
+    env:
+      VCPKG_ROOT: C:\vcpkg
+      VCPKG_DEFAULT_BINARY_CACHE: ${{ github.workspace }}\.vcpkg-cache
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Cache vcpkg binaries
+        uses: actions/cache@v4
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-${{ runner.os }}-release-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'tools/sofa/vcpkg.json') }}
+          restore-keys: vcpkg-${{ runner.os }}-
+
+      - name: Create binary cache dir
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force "$env:VCPKG_DEFAULT_BINARY_CACHE" | Out-Null
+
+      - name: Work out the module and version
+        id: tag
+        shell: pwsh
+        run: |
+          $match = [regex]::Match('${{ github.ref_name }}', '^module/([a-z0-9-]+)/v(\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?)$')
+          if (-not $match.Success) { Write-Error 'The tag must look like module/<short>/vX.Y.Z'; exit 1 }
+          $short = $match.Groups[1].Value
+          $found = @(Get-ChildItem modules/*/module.json | Where-Object {
+              (Get-Content $_ -Raw | ConvertFrom-Json).id -like "*.$short"
+          })
+          if ($found.Count -ne 1) { Write-Error "Expected one module whose id ends in .$short, found $($found.Count)"; exit 1 }
+          "id=$((Get-Content $found[0] -Raw | ConvertFrom-Json).id)" >> $env:GITHUB_OUTPUT
+          "dir=$($found[0].Directory.Name)" >> $env:GITHUB_OUTPUT
+          "version=$($match.Groups[2].Value)" >> $env:GITHUB_OUTPUT
+
+      # Also fails if the module is bundled or its module.json has another version.
+      - name: Build the module
+        shell: pwsh
+        run: tools/make-release.ps1 -Version '${{ steps.tag.outputs.version }}' -Module '${{ steps.tag.outputs.id }}'
+
+      - name: Test
+        run: ctest --preset windows-release-asio
+
+      - name: Release notes from the module's CHANGELOG.md
+        shell: pwsh
+        run: tools/changelog-section.ps1 -Version '${{ steps.tag.outputs.version }}' -File 'modules/${{ steps.tag.outputs.dir }}/CHANGELOG.md' -OutFile dist/notes.md
+
+      - name: Smoke test the module in the packaged app
+        shell: pwsh
+        run: tools/check-module-install.ps1 -Zip 'dist/${{ steps.tag.outputs.id }}-${{ steps.tag.outputs.version }}.zip' -Id '${{ steps.tag.outputs.id }}' -BuildDir build/windows-release-asio
+
+      # Not marked latest, so the repo's "latest release" link keeps pointing at the app.
+      - name: Create the GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ steps.tag.outputs.version }}'
+          $id = '${{ steps.tag.outputs.id }}'
+          $files = @(Get-ChildItem dist -Filter "$id-$version*" | ForEach-Object FullName)
+          $name = (Get-Content 'modules/${{ steps.tag.outputs.dir }}/module.json' -Raw | ConvertFrom-Json).name
+          $pre = @()
+          if ($version -match '-') { $pre = @('--prerelease') }
+          gh release create '${{ github.ref_name }}' @files --title "$name $version" --notes-file dist/notes.md --latest=false @pre

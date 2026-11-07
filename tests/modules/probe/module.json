@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "id": "test.probe",
+  "name": "Probe (test)",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "dsptb_test_probe.dll",
+  "modules": [
+    {"id": "test.probe", "kind": "analyzer"},
+    {"id": "test.probe-thread", "kind": "analyzer"}
+  ],
+  "author": "DSP Toolbox tests",
+  "license": "GPL-3.0-only",
+  "description": "Test fixtures: analyzers that record what the host hands to analyze()."
+}

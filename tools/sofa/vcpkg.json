@@ -1,0 +1,6 @@
+{
+  "name": "dsptb-sofa-tool",
+  "version": "0.1.0",
+  "description": "Developer tool for preparing HRTF sets (SOFA). Not part of the product build.",
+  "dependencies": ["libmysofa", "netcdf-c"]
+}
