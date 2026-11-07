@@ -166,11 +166,33 @@ public:
                 }
             }
         }
+        drawHover(c, p, s, history);
         drawPlotBorder(c, p);
         drawTimeAxis(c, p, s, history);
     }
 
 private:
+    // An onset within a few pixels of the mouse if there is one, otherwise the novelty curve under it.
+    void drawHover(Canvas& c, const Plot& p, float s, double history) const {
+        const dsptb_mouse m = c.mouse();
+        const auto& items = novelty_.items();
+        if (!m.hovered || !p.contains(m.pos) || items.empty())
+            return;
+        const double newest = items.back().t;
+        const double t = p.timeAt(m.pos.x, newest, history);
+        drawHoverLine(c, p, m.pos.x);
+        char text[96];
+        if (const OnsetRecord* onset = nearestInTime(onsets_.items(), t, history * static_cast<double>(4.0f * s / p.w))) {
+            std::snprintf(text, sizeof(text), "Onset   strength %.2f   -%.2f s", static_cast<double>(onset->strength),
+                          newest - onset->t);
+        } else if (const NoveltyRecord* value = nearestInTime(items, t)) {
+            std::snprintf(text, sizeof(text), "Novelty %.3f   -%.2f s", static_cast<double>(value->novelty), newest - value->t);
+        } else {
+            std::snprintf(text, sizeof(text), "No data   -%.2f s", newest - t);
+        }
+        drawHoverTag(c, p, s, m.pos, text);
+    }
+
     void rebuild(double interval) {
         interval_ = interval;
         config_.fftSize = dc::fftSizeForRate(sampleRate_, 1024);

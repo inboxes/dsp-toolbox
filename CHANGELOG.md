@@ -13,6 +13,7 @@ All notable changes to this project are recorded here. The format follows [Keep 
 ### Changed
 
 - Key detection estimates the recording's tuning instead of assuming A4 = 440 Hz.
+- Installed modules live in the `modules` folder next to the app, not in `%LOCALAPPDATA%`. Install any you added under 0.1.0 again; the app can't write to a folder like `Program Files`, so keep it somewhere you can write to.
 
 ### Fixed
 

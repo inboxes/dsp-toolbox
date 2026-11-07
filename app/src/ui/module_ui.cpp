@@ -315,9 +315,8 @@ void processModuleInstall(ShellContext& ctx, HWND owner) {
     std::filesystem::path zip;
     if (!pickModuleZip(owner, zip))
         return;
-    const std::filesystem::path data = dsptb::dataDir();
     const dsptb::ModuleInstallResult r =
-        dsptb::installModuleZip(zip, data / "modules", data / "tmp", [&](const std::string& id) {
+        dsptb::installModuleZip(zip, dsptb::modulesDir(), [&](const std::string& id) {
             return ctx.registry && ctx.registry->findPackage(id) != nullptr;
         });
     const std::string label = r.manifest.name + " " + r.manifest.version;
@@ -336,7 +335,7 @@ void processModuleInstall(ShellContext& ctx, HWND owner) {
 namespace {
 
 void openModulesFolder() {
-    const std::filesystem::path dir = dsptb::dataDir() / "modules";
+    const std::filesystem::path dir = dsptb::modulesDir();
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
     ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);

@@ -163,11 +163,44 @@ public:
                 }
             }
         }
+        drawHover(c, p, s, history, tuning, yOf);
         drawPlotBorder(c, p);
         drawTimeAxis(c, p, s, history);
     }
 
 private:
+    // The voiced frame nearest the mouse, within a few pixels, because a short run is hard to land on exactly.
+    template <class YOf>
+    void drawHover(Canvas& c, const Plot& p, float s, double history, const dc::Tuning& tuning, const YOf& yOf) const {
+        const dsptb_mouse m = c.mouse();
+        const auto& items = history_.items();
+        if (!m.hovered || !p.contains(m.pos) || items.empty())
+            return;
+        const double newest = items.back().t;
+        const double t = p.timeAt(m.pos.x, newest, history);
+        const double reach = history * static_cast<double>(6.0f * s / p.w);
+        const Record* best = nullptr;
+        const auto from = std::lower_bound(items.begin(), items.end(), t - reach,
+                                           [](const Record& r, double v) { return r.t < v; });
+        for (auto it = from; it != items.end() && it->t <= t + reach; ++it)
+            if (it->voiced && it->hz > 0.0f && (!best || std::abs(it->t - t) < std::abs(best->t - t)))
+                best = &*it;
+
+        drawHoverLine(c, p, m.pos.x);
+        char text[96];
+        if (best) {
+            const dsptb_vec2 point{p.xOf(best->t, newest, history), yOf(best->hz)};
+            c.fillRect({point.x - 3.0f * s, point.y - 3.0f * s}, {point.x + 3.0f * s, point.y + 3.0f * s}, rgba(255, 255, 255));
+            char note[24];
+            dc::noteName(best->hz, tuning, note, sizeof(note));
+            std::snprintf(text, sizeof(text), "%.1f Hz   %s   %.0f %%   -%.2f s", static_cast<double>(best->hz), note,
+                          static_cast<double>(best->confidence) * 100.0, newest - best->t);
+        } else {
+            std::snprintf(text, sizeof(text), "%s   -%.2f s", nearestInTime(items, t) ? "No pitch" : "No data", newest - t);
+        }
+        drawHoverTag(c, p, s, m.pos, text);
+    }
+
     template <class YOf>
     void drawNoteLines(Canvas& c, const Plot& p, float s, double loHz, double hiHz, const dc::Tuning& tuning,
                        const YOf& yOf) const {

@@ -53,7 +53,7 @@ struct ShellContext {
     dsptb::SessionModel* model = nullptr;
     CanvasHost* canvas = nullptr;
     SessionController* session = nullptr;         // sessions, export, recording (session_ui.hpp)
-    std::vector<dsptb::ScanFolder> moduleFolders; // scanned at start and on Rescan
+    std::vector<std::filesystem::path> moduleFolders; // scanned at start and on Rescan
     ModuleUiState moduleUi;
 
     bool panelOpen[kPanelCount] = {true, true, true, true};

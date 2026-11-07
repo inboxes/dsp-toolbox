@@ -71,18 +71,15 @@ int runBench(const BenchOptions& o) {
     file->audio = pcmToStereo(generateSignal(gp));
     file->seconds = gp.seconds;
 
-    wchar_t exeBuf[MAX_PATH * 2];
-    const DWORD exeLen = GetModuleFileNameW(nullptr, exeBuf, static_cast<DWORD>(std::size(exeBuf)));
-    if (exeLen == 0 || exeLen >= std::size(exeBuf)) { // failed, or the path was truncated
+    if (appDir().empty()) {
         std::fprintf(stderr, "error: cannot determine the executable's folder\n");
         return 2;
     }
-    const fs::path exeDir = fs::path(std::wstring(exeBuf, exeLen)).parent_path();
     ModuleRegistry registry;
     {
-        std::vector<ScanFolder> folders{{exeDir / "modules", false}, {dataDir() / "modules", true}};
+        std::vector<fs::path> folders{modulesDir()};
         for (const auto& d : o.moduleDirs)
-            folders.push_back({fs::path(d), false});
+            folders.push_back(fs::path(d));
         registry.scan(folders);
     }
     Engine engine;

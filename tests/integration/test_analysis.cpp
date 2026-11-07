@@ -32,7 +32,7 @@ constexpr double kPi = 3.14159265358979323846;
 ModuleRegistry& registry() {
     static ModuleRegistry reg = [] {
         ModuleRegistry r;
-        r.scan({{fs::path(DSPTB_MODULES_DIR), false}});
+        r.scan({fs::path(DSPTB_MODULES_DIR)});
         return r;
     }();
     return reg;

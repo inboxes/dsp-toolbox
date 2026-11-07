@@ -203,7 +203,32 @@ private:
             }
             c.text({p.x0 + 6.0f * s, p.y0 + 2.0f * s}, rgba(230, 232, 238), text);
         }
+        drawHover(c, p, s, strip, history);
         drawPlotBorder(c, p);
+    }
+
+    // Every strip shows its value at the mouse's time, so the features can be read together.
+    void drawHover(Canvas& c, const Plot& p, float s, const Strip& strip, double history) const {
+        const dsptb_mouse m = c.mouse();
+        const auto& items = history_.items();
+        if (!m.hovered || m.pos.x < p.x0 || m.pos.x > p.x0 + p.w || items.empty())
+            return;
+        const double newest = items.back().t;
+        const double t = p.timeAt(m.pos.x, newest, history);
+        drawHoverLine(c, p, m.pos.x);
+        char text[64];
+        if (const Record* r = nearestInTime(items, t)) {
+            const double value = static_cast<double>(strip.value(r->f));
+            if (strip.axis == Axis::LogHz)
+                std::snprintf(text, sizeof(text), "%.0f Hz   -%.2f s", value, newest - r->t);
+            else if (strip.axis == Axis::Db)
+                std::snprintf(text, sizeof(text), "%.1f dB   -%.2f s", value, newest - r->t);
+            else
+                std::snprintf(text, sizeof(text), "%.3f   -%.2f s", value, newest - r->t);
+        } else {
+            std::snprintf(text, sizeof(text), "No data   -%.2f s", newest - t);
+        }
+        drawHoverTag(c, p, s, {m.pos.x, p.y0}, text);
     }
 
     void exportCsv() {

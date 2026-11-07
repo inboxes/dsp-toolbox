@@ -31,7 +31,7 @@ constexpr uint32_t kBlock = 256;
 ModuleRegistry& registry() {
     static ModuleRegistry reg = [] {
         ModuleRegistry r;
-        r.scan({{fs::path(DSPTB_MODULES_DIR), false}, {fs::path(DSPTB_TEST_MODULES_DIR), false}});
+        r.scan({fs::path(DSPTB_MODULES_DIR), fs::path(DSPTB_TEST_MODULES_DIR)});
         return r;
     }();
     return reg;

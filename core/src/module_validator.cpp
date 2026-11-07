@@ -688,7 +688,7 @@ ValidationReport validateModulePackage(ModuleRegistry& registry, const fs::path&
     std::error_code ec;
     const fs::path folder = fs::is_directory(target, ec) ? target : target.parent_path();
     std::string err;
-    ModulePackage* pkg = registry.addPackage(folder, false, err);
+    ModulePackage* pkg = registry.addPackage(folder, err);
     if (!pkg) {
         pkgChk.add("manifest (module.json)", false, err);
         return rep;

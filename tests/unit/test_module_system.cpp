@@ -126,7 +126,7 @@ TEST_CASE("registry: a package built for another ABI is listed as Incompatible A
         root / "p1" / "module.json",
         R"({"schema":1,"id":"test.future","version":"1.0.0","abi":2,"dll":"future.dll","modules":[{"id":"test.future","kind":"processor"}]})");
     ModuleRegistry reg;
-    REQUIRE(reg.scan({{root, false}}) == 1);
+    REQUIRE(reg.scan({root}) == 1);
     ModulePackage* p = reg.findPackage("test.future");
     REQUIRE(p != nullptr);
     CHECK(p->status == PackageStatus::IncompatibleAbi);
@@ -144,42 +144,42 @@ TEST_CASE(
     fs::create_directories(root / "not-a-module");
     writeFile(root / "broken" / "module.json", "{ nope");
     ModuleRegistry reg;
-    CHECK(reg.scan({{root, false}}) == 1);
+    CHECK(reg.scan({root}) == 1);
     ModulePackage* p = reg.findPackage("org.dsptb.gain");
     REQUIRE(p != nullptr);
     CHECK(p->status == PackageStatus::FailedToLoad);
     CHECK(reg.packages().size() == 1);
 }
 
-TEST_CASE("registry: duplicate ids keep the higher version, then the user folder over the bundled one") {
+TEST_CASE("registry: duplicate ids keep the higher version, then the one found first") {
     const auto manifest = [](const std::string& version) {
         return std::string(R"({"schema":1,"id":"org.dup","version":")") + version +
                R"(","abi":1,"dll":"dup.dll","modules":[{"id":"org.dup","kind":"processor"}]})";
     };
     {
-        const fs::path bundled = tempDir("dup_a"), user = tempDir("dup_b");
-        writeFile(bundled / "dup" / "module.json", manifest("0.1.0"));
-        writeFile(user / "dup" / "module.json", manifest("0.2.0"));
+        const fs::path first = tempDir("dup_a"), second = tempDir("dup_b");
+        writeFile(first / "dup" / "module.json", manifest("0.1.0"));
+        writeFile(second / "dup" / "module.json", manifest("0.2.0"));
         ModuleRegistry reg;
-        reg.scan({{bundled, false}, {user, true}});
+        reg.scan({first, second});
         REQUIRE(reg.packages().size() == 1);
         CHECK(reg.packages()[0]->manifest.version == "0.2.0");
     }
     {
-        const fs::path bundled = tempDir("dup_c"), user = tempDir("dup_d");
-        writeFile(bundled / "dup" / "module.json", manifest("0.1.0"));
-        writeFile(user / "dup" / "module.json", manifest("0.1.0"));
+        const fs::path first = tempDir("dup_c"), second = tempDir("dup_d");
+        writeFile(first / "dup" / "module.json", manifest("0.1.0"));
+        writeFile(second / "dup" / "module.json", manifest("0.1.0"));
         ModuleRegistry reg;
-        reg.scan({{bundled, false}, {user, true}});
+        reg.scan({first, second});
         REQUIRE(reg.packages().size() == 1);
-        CHECK(reg.packages()[0]->userFolder); // equal versions: the user folder wins
+        CHECK(reg.packages()[0]->folder == fs::absolute(first / "dup"));
     }
     {
-        const fs::path bundled = tempDir("dup_e"), user = tempDir("dup_f");
-        writeFile(bundled / "dup" / "module.json", manifest("0.3.0"));
-        writeFile(user / "dup" / "module.json", manifest("0.1.0"));
+        const fs::path first = tempDir("dup_e"), second = tempDir("dup_f");
+        writeFile(first / "dup" / "module.json", manifest("0.3.0"));
+        writeFile(second / "dup" / "module.json", manifest("0.1.0"));
         ModuleRegistry reg;
-        reg.scan({{bundled, false}, {user, true}});
+        reg.scan({first, second});
         REQUIRE(reg.packages().size() == 1);
         CHECK(reg.packages()[0]->manifest.version == "0.3.0");
     }
@@ -189,12 +189,12 @@ TEST_CASE("registry: rescan only adds packages it has not seen") {
     const fs::path root = tempDir("rescan");
     writeFile(root / "a" / "module.json", kGoodManifest);
     ModuleRegistry reg;
-    CHECK(reg.scan({{root, false}}) == 1);
-    CHECK(reg.scan({{root, false}}) == 0);
+    CHECK(reg.scan({root}) == 1);
+    CHECK(reg.scan({root}) == 0);
     writeFile(
         root / "b" / "module.json",
         R"({"schema":1,"id":"org.other","version":"1.0.0","abi":1,"dll":"o.dll","modules":[{"id":"org.other","kind":"processor"}]})");
-    CHECK(reg.scan({{root, false}}) == 1);
+    CHECK(reg.scan({root}) == 1);
     CHECK(reg.packages().size() == 2);
 }
 

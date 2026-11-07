@@ -2,6 +2,7 @@
 
 #include <dsptb/plugin_abi.h>
 
+#include "dsptb/core/paths.hpp"
 #include "dsptb/core/version.hpp"
 
 #include <miniz.h>
@@ -71,10 +72,6 @@ bool safeSegments(std::string name, std::vector<std::string>& out) {
         out.push_back(segment);
     }
     return !out.empty();
-}
-
-fs::path fromUtf8(const std::string& s) {
-    return fs::path(reinterpret_cast<const char8_t*>(s.c_str()));
 }
 
 // Closes the zip and the file behind it on every return path.
@@ -231,7 +228,6 @@ bool replaceFolder(const fs::path& from, const fs::path& to, std::string& error)
 } // namespace
 
 ModuleInstallResult installModuleZip(const fs::path& zipPath, const fs::path& modulesDir,
-                                     const fs::path& tmpRoot,
                                      const std::function<bool(const std::string&)>& isKnown) {
     ModuleInstallResult r;
 
@@ -253,6 +249,15 @@ ModuleInstallResult installModuleZip(const fs::path& zipPath, const fs::path& mo
     if (!checkEntries(reader.zip, manifestEntry, r.error))
         return r;
 
+    // Declared before `temp`, so it goes once `temp` has been removed from it.
+    const fs::path tmpRoot = modulesDir / ".installing";
+    struct RemoveIfEmpty {
+        fs::path path;
+        ~RemoveIfEmpty() {
+            std::error_code ignored;
+            fs::remove(path, ignored);
+        }
+    } tmpRootCleanup{tmpRoot};
     TempFolder temp;
     fs::create_directories(tmpRoot, ec);
     for (int i = 0; i < 1000 && temp.path.empty(); ++i) {
@@ -262,7 +267,7 @@ ModuleInstallResult installModuleZip(const fs::path& zipPath, const fs::path& mo
             temp.path = candidate;
     }
     if (temp.path.empty()) {
-        r.error = "Could not create a temporary folder.";
+        r.error = "Can't write to " + toUtf8(modulesDir) + ". Move the app to a folder you can write to, then try again.";
         return r;
     }
     if (!extractAll(reader.zip, temp.path, r.error))

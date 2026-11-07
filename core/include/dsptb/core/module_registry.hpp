@@ -19,7 +19,6 @@ const char* statusLabel(PackageStatus s); // "OK", "Incompatible ABI", "Failed t
 // first time a module from it is needed and then stays loaded until exit.
 struct ModulePackage {
     std::filesystem::path folder;
-    bool userFolder = false; // found under the user's modules folder (wins ties against bundled)
     ModuleManifest manifest;
     PackageStatus status = PackageStatus::Ok;
     std::string statusText; // the reason when status != Ok
@@ -36,11 +35,6 @@ struct ModulePackage {
     std::string dllPathUtf8() const;
 };
 
-struct ScanFolder {
-    std::filesystem::path folder;
-    bool user = false;
-};
-
 // Validates a descriptor read from a DLL against the module rules. Returns an
 // empty string when it is fine.
 std::string validateDescriptor(const dsptb_module_desc& d);
@@ -51,12 +45,12 @@ class ModuleRegistry {
 public:
     // Scans each folder (every subfolder holding a module.json is a package) and adds packages not yet known
     // (by folder). Returns how many packages were added. A package whose module id is already known is a
-    // conflict: the higher version wins, then the user folder over the bundled one; the loser is logged.
-    size_t scan(const std::vector<ScanFolder>& folders);
+    // conflict: the higher version wins, then the one found first; the loser is logged.
+    size_t scan(const std::vector<std::filesystem::path>& folders);
 
     // Adds one package folder directly (used by `dsptb-cli validate`). Returns null with `error` on a folder
     // without a readable module.json.
-    ModulePackage* addPackage(const std::filesystem::path& folder, bool user, std::string& error);
+    ModulePackage* addPackage(const std::filesystem::path& folder, std::string& error);
 
     const std::vector<std::unique_ptr<ModulePackage>>& packages() const { return packages_; }
     ModulePackage* findPackage(const std::string& packageId);

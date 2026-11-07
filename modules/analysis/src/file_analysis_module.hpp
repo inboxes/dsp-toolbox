@@ -9,6 +9,7 @@
 #include <dsptb/dsp_common/colormap.hpp>
 #include <dsptb/dsp_common/freq_map.hpp>
 #include <dsptb/dsp_common/loudness.hpp>
+#include <dsptb/dsp_common/tuning.hpp>
 
 #include <atomic>
 #include <limits>
@@ -178,11 +179,35 @@ public:
         updateTexture(c, report);
         if (tex_)
             c.image(tex_, {p.x0, p.y0}, {p.x0 + p.w, p.y0 + p.h});
+        drawHover(c, p, s, *report);
         drawPlotBorder(c, p);
         drawAxes(c, p, s, *report);
     }
 
 private:
+    void drawHover(Canvas& c, const Plot& p, float s, const Report& r) const {
+        const dsptb_mouse m = c.mouse();
+        if (!m.hovered || !p.contains(m.pos) || r.columns == 0)
+            return;
+        const float fx = (m.pos.x - p.x0) / p.w;
+        const float fy = 1.0f - (m.pos.y - p.y0) / p.h;
+        const auto column = std::min(r.columns - 1, static_cast<uint32_t>(fx * static_cast<float>(r.columns)));
+        const auto row = std::min(kRows - 1, static_cast<uint32_t>(fy * static_cast<float>(kRows)));
+        // The same log axis the spectrogram was mapped to, from 20 Hz up.
+        const double hz = 20.0 * std::pow(r.maxHz / 20.0, (static_cast<double>(row) + 0.5) / kRows);
+        const float db = r.db[static_cast<size_t>(column) * kRows + row];
+        c.line({m.pos.x, p.y0}, {m.pos.x, p.y0 + p.h}, rgba(255, 255, 255, 110), 1.0f);
+        c.line({p.x0, m.pos.y}, {p.x0 + p.w, m.pos.y}, rgba(255, 255, 255, 110), 1.0f);
+        char note[24];
+        dc::noteName(hz, dc::Tuning{}, note, sizeof(note));
+        char level[24] = "no signal";
+        if (db > -200.0f)
+            std::snprintf(level, sizeof(level), "%.0f dB", static_cast<double>(db));
+        char text[96];
+        std::snprintf(text, sizeof(text), "%.1f Hz  %s   %.2f s   %s", hz, note, static_cast<double>(fx) * r.seconds, level);
+        drawHoverTag(c, p, s, m.pos, text);
+    }
+
     static size_t columnIndex(const OfflineBlock& job) {
         return static_cast<size_t>(std::clamp(roundInt(job.param(kColumns)), 0, 2));
     }

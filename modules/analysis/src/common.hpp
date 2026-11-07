@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <deque>
 #include <string>
 #include <vector>
@@ -68,7 +69,53 @@ struct Plot {
     float xOf(double t, double newest, double history) const {
         return x0 + w * static_cast<float>(1.0 - (newest - t) / history);
     }
+    double timeAt(float x, double newest, double history) const {
+        return newest - history * (1.0 - static_cast<double>((x - x0) / w));
+    }
+    bool contains(dsptb_vec2 pos) const { return pos.x >= x0 && pos.x <= x0 + w && pos.y >= y0 && pos.y <= y0 + h; }
 };
+
+// How far from a reading the mouse can be, in time, and still count as being on it. Longer than any hop, and short
+// enough that a gap in the data reads as a gap.
+constexpr double kHoverToleranceSeconds = 0.05;
+
+// The record closest to `t`, or null if none is within `tolerance`.
+template <class Items>
+const typename Items::value_type* nearestInTime(const Items& items, double t, double tolerance = kHoverToleranceSeconds) {
+    using Record = typename Items::value_type;
+    const auto after = std::lower_bound(items.begin(), items.end(), t, [](const Record& r, double v) { return r.t < v; });
+    const Record* best = nullptr;
+    double bestGap = tolerance;
+    const auto consider = [&](const Record& r) {
+        const double gap = std::abs(r.t - t);
+        if (gap <= bestGap) {
+            best = &r;
+            bestGap = gap;
+        }
+    };
+    if (after != items.end())
+        consider(*after);
+    if (after != items.begin())
+        consider(*(after - 1));
+    return best;
+}
+
+inline void drawHoverLine(Canvas& c, const Plot& p, float x) {
+    c.line({x, p.y0}, {x, p.y0 + p.h}, rgba(255, 255, 255, 110), 1.0f);
+}
+
+// A label by the mouse, kept inside the plot and flipped to the left near its right edge.
+inline void drawHoverTag(Canvas& c, const Plot& p, float s, dsptb_vec2 at, const char* text) {
+    const float width = 7.0f * s * static_cast<float>(std::strlen(text)); // the canvas can't measure text
+    const float height = 18.0f * s;
+    float x = at.x + 10.0f * s;
+    if (x + width > p.x0 + p.w)
+        x = at.x - 10.0f * s - width;
+    x = std::max(x, p.x0);
+    const float y = std::max(p.y0, std::min(at.y + 12.0f * s, p.y0 + p.h - height));
+    c.fillRect({x, y}, {x + width, y + height}, rgba(0, 0, 0, 200));
+    c.text({x + 3.0f * s, y + 2.0f * s}, rgba(255, 255, 255), text);
+}
 
 // The time axis all four analyzers share, matching the Spectrogram's: 0 at the right edge.
 inline void drawTimeAxis(Canvas& c, const Plot& p, float s, double history) {

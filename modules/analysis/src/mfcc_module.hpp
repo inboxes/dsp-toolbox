@@ -180,23 +180,22 @@ private:
 
     void drawHover(Canvas& c, const Plot& p, float s, uint32_t rows, uint32_t first, double history) const {
         const dsptb_mouse m = c.mouse();
-        if (!m.hovered || m.pos.x < p.x0 || m.pos.x > p.x0 + p.w || m.pos.y < p.y0 || m.pos.y > p.y0 + p.h)
+        if (!m.hovered || !p.contains(m.pos))
             return;
         const auto& items = history_.items();
-        const double age = history * (1.0 - static_cast<double>((m.pos.x - p.x0) / p.w));
-        const double t = items.back().t - age;
-        const auto it = std::lower_bound(items.begin(), items.end(), t,
-                                         [](const Record& r, double v) { return r.t < v; });
-        if (it == items.end())
-            return;
+        const double newest = items.back().t;
+        const double t = p.timeAt(m.pos.x, newest, history);
         const auto row = static_cast<uint32_t>(std::clamp((1.0f - (m.pos.y - p.y0) / p.h) * static_cast<float>(rows), 0.0f,
                                                           static_cast<float>(rows - 1)));
+        drawHoverLine(c, p, m.pos.x);
         char text[64];
-        std::snprintf(text, sizeof(text), "c%u   -%.2f s   %.2f", row + first, age,
-                      static_cast<double>(it->values[row + first]));
-        const float tx = std::min(m.pos.x + 10.0f * s, p.x0 + p.w - 150.0f * s);
-        c.fillRect({tx - 3.0f * s, m.pos.y + 10.0f * s}, {tx + 150.0f * s, m.pos.y + 28.0f * s}, rgba(0, 0, 0, 190));
-        c.text({tx, m.pos.y + 12.0f * s}, rgba(255, 255, 255), text);
+        const Record* r = nearestInTime(items, t);
+        if (r && row + first < r->count)
+            std::snprintf(text, sizeof(text), "c%u   %.2f   -%.2f s", row + first,
+                          static_cast<double>(r->values[row + first]), newest - r->t);
+        else
+            std::snprintf(text, sizeof(text), "No data   -%.2f s", newest - t);
+        drawHoverTag(c, p, s, m.pos, text);
     }
 
     void rebuild(int nMfcc, int nMels, double fmin, double fmax) {
