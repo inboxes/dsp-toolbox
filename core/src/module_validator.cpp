@@ -542,6 +542,101 @@ void checkAnalyzer(ModulePackage& pkg, const dsptb_module_desc& d, std::vector<V
     }
 }
 
+// An offline module gets the whole file on a worker thread, and must honour cancel and report progress.
+void checkOfflineJob(ModulePackage& pkg, const dsptb_module_desc& d, std::vector<ValidationCheck>& out) {
+    Checker chk{out};
+    SimpleModuleHost host;
+    std::string err;
+
+    const auto signal = [](double sr, double seconds, double hz, float amp) {
+        std::vector<float> s(static_cast<size_t>(sr * seconds));
+        for (size_t i = 0; i < s.size(); ++i)
+            s[i] = amp * std::sin(static_cast<float>(2.0 * 3.14159265358979 * hz * static_cast<double>(i) / sr));
+        return s;
+    };
+    const auto runOn = [&](ModuleInstance& inst, const std::vector<float>& mono, double sr,
+                           std::atomic<float>* progress, const std::atomic<bool>* cancel, int& result) {
+        const float* ch[2] = {mono.data(), mono.data()};
+        return inst.callRunOffline(ch, 2, mono.size(), sr, progress, cancel, result);
+    };
+
+    // --- every rate, and a silent and an empty file ---
+    {
+        std::string failure;
+        for (double sr : {44100.0, 48000.0, 96000.0}) {
+            auto inst = make(pkg, d, host, err);
+            if (!inst || !inst->prepare(sr, kOfflineMaxBlock, true, err)) {
+                failure = "could not create/prepare: " + err;
+                break;
+            }
+            for (const auto& mono : {signal(sr, 2.0, 440.0, 0.5f), signal(sr, 2.0, 440.0, 0.0f), std::vector<float>{}}) {
+                int result = 1;
+                if (!runOn(*inst, mono, sr, nullptr, nullptr, result))
+                    failure = "crashed at " + std::to_string(sr) + " Hz";
+                else if (result != 0)
+                    failure = "reported a failure at " + std::to_string(sr) + " Hz";
+            }
+        }
+        chk.add("runs at 44.1, 48 and 96 kHz on a tone, silence and an empty file", failure.empty(), failure);
+    }
+
+    // --- progress stays in range and reaches the end, and two runs agree ---
+    {
+        auto inst = make(pkg, d, host, err);
+        const auto mono = signal(48000.0, 5.0, 1000.0, 0.5f);
+        std::atomic<float> progress{0.0f};
+        int result = 1;
+        const bool ok = inst && inst->prepare(48000.0, kOfflineMaxBlock, true, err) &&
+                        runOn(*inst, mono, 48000.0, &progress, nullptr, result) && result == 0;
+        chk.add("reports progress up to the end", ok && progress.load() > 0.5f,
+                "progress reached " + std::to_string(progress.load()));
+        std::string first, second;
+        if (ok && inst->dumpFrames(first)) {
+            runOn(*inst, mono, 48000.0, nullptr, nullptr, result);
+            inst->dumpFrames(second);
+            chk.add("two runs give the same result", first == second, "the frame dumps differ");
+        }
+    }
+
+    // --- cancel stops a long file quickly ---
+    {
+        auto inst = make(pkg, d, host, err);
+        const auto mono = signal(48000.0, 60.0, 440.0, 0.5f);
+        std::atomic<bool> cancel{true};
+        int result = 0;
+        const auto start = std::chrono::steady_clock::now();
+        const bool ok = inst && inst->prepare(48000.0, kOfflineMaxBlock, true, err) &&
+                        runOn(*inst, mono, 48000.0, nullptr, &cancel, result);
+        const double ms =
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        chk.add("cancel stops a 60 s file within 100 ms", ok && ms <= 100.0,
+                "took " + std::to_string(ms) + " ms");
+    }
+
+    // --- parameter fuzz ---
+    {
+        std::string failure;
+        std::mt19937 rng(0x0ff11e);
+        auto inst = make(pkg, d, host, err);
+        const auto mono = signal(48000.0, 2.0, 220.0, 0.5f);
+        if (!inst || !inst->prepare(48000.0, kOfflineMaxBlock, true, err)) {
+            failure = "could not create/prepare: " + err;
+        } else {
+            std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+            for (int round = 0; round < 8 && failure.empty(); ++round) {
+                for (uint32_t i = 0; i < inst->params().size(); ++i) {
+                    const auto& p = inst->params().desc(i);
+                    inst->params().set(i, p.min_value + unit(rng) * (p.max_value - p.min_value));
+                }
+                int result = 1;
+                if (!runOn(*inst, mono, 48000.0, nullptr, nullptr, result))
+                    failure = "crashed on round " + std::to_string(round);
+            }
+        }
+        chk.add("random parameter values don't crash it", failure.empty(), failure);
+    }
+}
+
 void checkCommon(ModulePackage& pkg, const dsptb_module_desc& d, std::vector<ValidationCheck>& out) {
     Checker chk{out};
     SimpleModuleHost host;
@@ -593,7 +688,7 @@ ValidationReport validateModulePackage(ModuleRegistry& registry, const fs::path&
     std::error_code ec;
     const fs::path folder = fs::is_directory(target, ec) ? target : target.parent_path();
     std::string err;
-    ModulePackage* pkg = registry.addPackage(folder, false, err);
+    ModulePackage* pkg = registry.addPackage(folder, err);
     if (!pkg) {
         pkgChk.add("manifest (module.json)", false, err);
         return rep;
@@ -635,7 +730,7 @@ ValidationReport validateModulePackage(ModuleRegistry& registry, const fs::path&
         else if (d->kind == DSPTB_KIND_ANALYZER)
             checkAnalyzer(*pkg, *d, mv.checks);
         else
-            chk.add("kind-specific conformance", true, "this module kind has no extra checks yet");
+            checkOfflineJob(*pkg, *d, mv.checks);
         checkCommon(*pkg, *d, mv.checks);
         rep.modules.push_back(std::move(mv));
     }

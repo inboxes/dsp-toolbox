@@ -32,7 +32,7 @@ constexpr uint32_t kBlock = 256;
 ModuleRegistry& registry() {
     static ModuleRegistry reg = [] {
         ModuleRegistry r;
-        r.scan({{fs::path(DSPTB_MODULES_DIR), false}, {fs::path(DSPTB_TEST_MODULES_DIR), false}});
+        r.scan({fs::path(DSPTB_MODULES_DIR), fs::path(DSPTB_TEST_MODULES_DIR)});
         return r;
     }();
     return reg;
@@ -297,7 +297,7 @@ TEST_CASE("fault: a C++ exception thrown in process() faults the module too") {
     // The SDK trampoline catches the exception, silences the block and re-raises it as a structured fault.
     // Use a fresh registry: the shared one already has test.faulty marked Faulted by the previous test.
     ModuleRegistry reg;
-    reg.scan({{fs::path(DSPTB_MODULES_DIR), false}, {fs::path(DSPTB_TEST_MODULES_DIR), false}});
+    reg.scan({fs::path(DSPTB_MODULES_DIR), fs::path(DSPTB_TEST_MODULES_DIR)});
     Engine engine(ModelRig::options());
     AudioConfig cfg;
     cfg.backend = BackendKind::Null;
@@ -330,7 +330,7 @@ TEST_CASE("fault: a C++ exception thrown in process() faults the module too") {
 
 TEST_CASE("fault: NaN output for 3 blocks in a row faults the module; the NaNs never reach the output") {
     ModuleRegistry reg;
-    reg.scan({{fs::path(DSPTB_MODULES_DIR), false}, {fs::path(DSPTB_TEST_MODULES_DIR), false}});
+    reg.scan({fs::path(DSPTB_MODULES_DIR), fs::path(DSPTB_TEST_MODULES_DIR)});
     Engine engine(ModelRig::options());
     AudioConfig cfg;
     cfg.backend = BackendKind::Null;

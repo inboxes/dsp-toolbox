@@ -10,6 +10,7 @@ add_executable(dsptb_tests
   integration/test_cli.cpp
   integration/test_modules.cpp
   integration/test_analyzers.cpp
+  integration/test_analysis.cpp
   integration/test_spatializer.cpp
   integration/test_sessions.cpp
   integration/test_asio.cpp)

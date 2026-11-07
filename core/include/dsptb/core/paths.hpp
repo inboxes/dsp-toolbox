@@ -9,6 +9,12 @@ namespace dsptb {
 // overrides it (used by tests and CI so they never touch the real profile). The directory is created.
 std::filesystem::path dataDir();
 
+// The folder holding the running executable. Empty if it can't be worked out.
+std::filesystem::path appDir();
+
+// <appDir>/modules: the one place modules live, bundled or installed. Not created here.
+std::filesystem::path modulesDir();
+
 // <dataDir>/logs, created on demand.
 std::filesystem::path logDir();
 

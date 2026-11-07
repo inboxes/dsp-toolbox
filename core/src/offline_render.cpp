@@ -13,8 +13,8 @@ SessionDescription descriptionFromSession(const SessionDoc& doc) {
     SessionDescription out;
     out.sampleRate = doc.audio.sampleRate;
     for (const SessionInstanceDoc& i : doc.instances) {
-        if (i.role == "analyzer")
-            continue; // analyzers listen only; they do not change the audio
+        if (i.role == "analyzer" || i.role == "offline")
+            continue; // these don't change the audio
         InstanceDescription d;
         d.module = i.module;
         d.enabled = i.enabled;
@@ -53,8 +53,8 @@ bool renderOffline(ModuleRegistry& registry, const SessionDescription& session, 
         const dsptb_module_desc* desc = registry.descriptor(d.module, &pkg, error);
         if (!desc)
             return false;
-        if (desc->kind == DSPTB_KIND_ANALYZER)
-            continue; // listens only
+        if (desc->kind == DSPTB_KIND_ANALYZER || desc->kind == DSPTB_KIND_OFFLINE)
+            continue; // these don't change the audio
         if (desc->kind != DSPTB_KIND_PROCESSOR) {
             error = d.module + " is not a processor";
             return false;

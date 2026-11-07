@@ -36,6 +36,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -153,7 +154,7 @@ void printUsage() {
         "    --session <file>          session to load first\n"
         "  --null-audio                force the null audio backend (no audio backend yet; accepted)\n"
         "  --ui-scale <100|125|150|200>  override the UI scale (test modes)\n"
-        "  --test-action reset|undock:<Panel>|notice:<text>|tone|play|loop:A:B|seek:S|source:mic  test "
+        "  --test-action reset|undock:<Panel>|notice:<text>|tone|play|mouse:X:Y|loop:A:B|seek:S|source:mic  test "
         "modes: trigger a UI action at frame 20 "
         "(repeatable)\n"
         "  --use-settings              test modes: read (never write) the user's settings.json\n"
@@ -169,10 +170,16 @@ std::string narrow(const std::wstring& w) {
     return s;
 }
 
-std::filesystem::path exeDir() {
-    wchar_t buf[MAX_PATH * 2];
-    const DWORD n = GetModuleFileNameW(nullptr, buf, static_cast<DWORD>(std::size(buf)));
-    return std::filesystem::path(std::wstring(buf, n)).parent_path();
+// Up to 0.1.0, installed modules went to the data folder. Say so rather than have them silently vanish.
+void warnAboutOldModulesFolder() {
+    const std::filesystem::path old = dsptb::dataDir() / "modules";
+    std::error_code ec;
+    for (const auto& e : std::filesystem::directory_iterator(old, ec))
+        if (std::filesystem::exists(e.path() / "module.json", ec)) {
+            spdlog::warn("Modules in {} are no longer loaded. Install them again with Install from .zip.",
+                         dsptb::toUtf8(old));
+            return;
+        }
 }
 
 // A 6 s stereo test file for screenshots and the smoke test: a rising sweep under a slow amplitude envelope,
@@ -395,7 +402,7 @@ int run(HINSTANCE instance, const Options& opt) {
     // Outlives the frame loop: the shell draws from it. A missing file only means no logo.
     Microsoft::WRL::ComPtr<ID3D11ShaderResourceView> asioLogo;
     UINT asioLogoW = 0, asioLogoH = 0;
-    if (loadPngTexture(d3d.device(), exeDir() / "assets" / "asio-compatible.png", asioLogo, asioLogoW,
+    if (loadPngTexture(d3d.device(), dsptb::appDir() / "assets" / "asio-compatible.png", asioLogo, asioLogoW,
                        asioLogoH)) {
         shell.asioLogo = reinterpret_cast<ImTextureID>(asioLogo.Get());
         shell.asioLogoSize = ImVec2(static_cast<float>(asioLogoW), static_cast<float>(asioLogoH));
@@ -406,11 +413,11 @@ int run(HINSTANCE instance, const Options& opt) {
     auto audio = std::make_unique<dsptb::AudioSession>();
     shell.audio = audio.get();
 
-    // ---- modules: bundled, then user-installed. DLLs load lazily, on first use. ----
+    // ---- modules live in the app's folder. DLLs load lazily, on first use. ----
     dsptb::ModuleRegistry registry;
-    shell.moduleFolders = {{exeDir() / "modules", false}, {dsptb::dataDir() / "modules", true}};
-    dsptb::applyPendingModuleInstalls(dsptb::dataDir() /
-                                      "modules"); // before the scan, while no DLL is loaded
+    shell.moduleFolders = {dsptb::modulesDir()};
+    dsptb::applyPendingModuleInstalls(dsptb::modulesDir()); // before the scan, while no DLL is loaded
+    warnAboutOldModulesFolder();
     registry.scan(shell.moduleFolders);
     spdlog::info("Found {} module package(s)", registry.packages().size());
     // Created before the stream opens so its instances are prepared for whatever format the device gives us.
@@ -473,6 +480,7 @@ int run(HINSTANCE instance, const Options& opt) {
     int frame = 0;
     int exitCode = 0;
     bool running = true;
+    std::optional<ImVec2> testMouse;
     bool closeSent = false;
     const auto loopStart = std::chrono::steady_clock::now();
     while (running) {
@@ -504,6 +512,8 @@ int run(HINSTANCE instance, const Options& opt) {
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
+        if (testMouse) // after the backend, which queues the real cursor; the last event wins
+            ImGui::GetIO().AddMousePosEvent(testMouse->x, testMouse->y);
         ImGui::NewFrame();
 
         {
@@ -528,13 +538,12 @@ int run(HINSTANCE instance, const Options& opt) {
             }
         }
 
-        // Smoke test: add one instance of every installed processor and analyzer, run, then remove them
+        // Smoke test: add one instance of every installed module, run, then remove them
         // again.
         if (opt.smokeTest && frame == 8) {
             for (const auto& pkg : registry.packages())
                 for (const auto& mm : pkg->manifest.modules)
-                    if (mm.kind == "processor" || mm.kind == "analyzer")
-                        ui::addModuleInstance(shell, mm.id);
+                    ui::addModuleInstance(shell, mm.id);
             spdlog::info("smoke test: {} module instance(s) added", model->instances().size());
         }
         if (opt.smokeTest && frame == totalFrames - 60) {
@@ -575,6 +584,10 @@ int run(HINSTANCE instance, const Options& opt) {
                 waitingForTestFile = true;
             } else if (action == "play") {
                 audio->engine().play();
+            } else if (action.rfind("mouse:", 0) == 0) {
+                float x = 0.0f, y = 0.0f;
+                if (std::sscanf(action.c_str() + 6, "%f:%f", &x, &y) == 2)
+                    testMouse = ImVec2(x, y);
             } else if (action.rfind("loop:", 0) == 0) {
                 double a = 0.0, b = 0.0;
                 if (std::sscanf(action.c_str() + 5, "%lf:%lf", &a, &b) == 2)
@@ -613,6 +626,10 @@ int run(HINSTANCE instance, const Options& opt) {
             } else if (action == "tap:pre" || action == "tap:post") {
                 // Moves the most recently added analyzer to the PRE or POST tap.
                 model->setTap(shell.moduleUi.lastAdded, action == "tap:pre" ? DSPTB_TAP_PRE : DSPTB_TAP_POST);
+            } else if (action == "run") {
+                // Starts the most recently added offline module on the loaded file.
+                if (!ui::startOfflineRun(shell, shell.moduleUi.lastAdded))
+                    spdlog::warn("--test-action run: nothing to run");
             } else if (action.rfind("label:", 0) == 0) {
                 // label:<text> names the most recently added instance.
                 model->setLabel(shell.moduleUi.lastAdded, action.substr(6));
@@ -703,6 +720,7 @@ int run(HINSTANCE instance, const Options& opt) {
 
     const uint64_t engineCallbacks = audio->engine().callbacks();
     const uint64_t engineUnderruns = audio->engine().underruns();
+    ui::stopOfflineRuns(shell);
     shell.session = nullptr;
     session.reset(); // stops a running recording; needs the model
     shell.model = nullptr;

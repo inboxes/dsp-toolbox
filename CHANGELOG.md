@@ -2,18 +2,25 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] - Unreleased
 
 ### Added
 
+- Offline modules: **Run**, progress and **Cancel** in the Chain panel, for modules that analyze a whole file. They read the file at its own sample rate, not the copy resampled for playback. `dsptb-cli` and `validate` handle them too.
 - **Spectrogram:** an optional note grid on the Log axis.
 - `dsp_common`: tuning and note maths, a semitone-spaced pitch spectrum, and a tuning estimator.
 
 ### Changed
 
 - Key detection estimates the recording's tuning instead of assuming A4 = 440 Hz.
+- Installed modules live in the `modules` folder next to the app, not in `%LOCALAPPDATA%`. Install any you added under 0.1.0 again; the app can't write to a folder like `Program Files`, so keep it somewhere you can write to.
 
-## [0.1.0] - Unreleased
+### Fixed
+
+- Analyzers stop while a file is paused or has ended, instead of scrolling silence.
+- `dsptb-cli` logs to stderr, so a log line can't break `--json` output.
+
+## [0.1.0] - 2026-11-06
 
 First release.
 

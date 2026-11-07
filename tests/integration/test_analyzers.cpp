@@ -31,7 +31,7 @@ constexpr uint32_t kBlock = 256;
 ModuleRegistry& registry() {
     static ModuleRegistry reg = [] {
         ModuleRegistry r;
-        r.scan({{fs::path(DSPTB_MODULES_DIR), false}, {fs::path(DSPTB_TEST_MODULES_DIR), false}});
+        r.scan({fs::path(DSPTB_MODULES_DIR), fs::path(DSPTB_TEST_MODULES_DIR)});
         return r;
     }();
     return reg;
@@ -394,6 +394,48 @@ TEST_CASE("analyzers: a disabled analyzer is paused and reports a gap when it re
     const json p = rig.probe(id);
     CHECK(p["frames"].get<uint64_t>() >= paused + 40u * kBlock);
     CHECK(p["dropped"].get<uint64_t>() >= 1); // the gap marker
+}
+
+TEST_CASE("analyzers: a paused file gives them nothing, and they carry on with no gap when it resumes") {
+    AnalyzerRig rig;
+    rig.useFile(sine(440.0, -6.0, 12.0));
+    const InstanceId id = rig.add("test.probe");
+    rig.run(100);
+    const uint64_t playing = rig.probe(id)["frames"].get<uint64_t>();
+    CHECK(playing == 100u * kBlock);
+
+    rig.engine.pause();
+    rig.run(100);
+    CHECK(rig.probe(id)["frames"].get<uint64_t>() <= playing + kBlock);
+
+    rig.engine.play();
+    rig.run(50);
+    const json p = rig.probe(id);
+    CHECK(p["frames"].get<uint64_t>() >= playing + 49u * kBlock);
+    CHECK(p["dropped"].get<uint64_t>() == 0);
+}
+
+TEST_CASE("analyzers: the end of the file stops them, and no file gives them nothing") {
+    AnalyzerRig rig;
+    const InstanceId id = rig.add("test.probe");
+    rig.run(20);
+    CHECK(rig.probe(id)["frames"].get<uint64_t>() == 0);
+
+    rig.useFile(sine(440.0, -6.0, 0.5));
+    rig.run(200);
+    const uint64_t atEnd = rig.probe(id)["frames"].get<uint64_t>();
+    CHECK(atEnd >= kRate / 2);
+    CHECK(atEnd <= kRate / 2 + kBlock);
+    rig.run(50);
+    CHECK(rig.probe(id)["frames"].get<uint64_t>() == atEnd);
+}
+
+TEST_CASE("analyzers: the microphone keeps feeding them with no file playing") {
+    AnalyzerRig rig(/*micCapture=*/true);
+    rig.engine.setSource(SourceKind::Mic);
+    const InstanceId id = rig.add("test.probe");
+    rig.run(50);
+    CHECK(rig.probe(id)["frames"].get<uint64_t>() == 50u * kBlock);
 }
 
 TEST_CASE("analyzers: they are not part of the chain order, so reordering processors ignores them") {

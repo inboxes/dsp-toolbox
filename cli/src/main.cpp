@@ -8,10 +8,16 @@
 #include <dsptb/core/version.hpp>
 #include <dsptb/rt/rt_guard.hpp>
 
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
+
 // Replaces global operator new/delete when DSPTB_RT_GUARD is on, so `bench` can report guard hits.
 DSPTB_DEFINE_RT_GUARD();
 
 int main(int argc, char** argv) {
+    // Stdout belongs to the results: a log line there would break --json and --dump-frames -.
+    spdlog::set_default_logger(spdlog::stderr_color_mt("cli"));
+
     CLI::App app{std::string(DSPTB_APP_NAME) + " command-line tool"};
     app.set_version_flag("--version", dsptb::versionString());
     app.require_subcommand(1);

@@ -34,6 +34,8 @@ struct InstanceRecord {
     dsptb_tap tap = DSPTB_TAP_POST;
     std::shared_ptr<TapRing> ring;
     bool isAnalyzer() const { return instance && instance->kind() == DSPTB_KIND_ANALYZER; }
+    bool isProcessor() const { return instance && instance->kind() == DSPTB_KIND_PROCESSOR; }
+    bool isOffline() const { return instance && instance->kind() == DSPTB_KIND_OFFLINE; }
 };
 
 // UI-thread owner of the session's module instances. Every structural change builds a new

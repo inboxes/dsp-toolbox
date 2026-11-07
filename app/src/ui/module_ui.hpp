@@ -22,6 +22,11 @@ namespace dsptb::ui {
 // history. Returns true when the value changed.
 bool drawParamControl(ShellContext& ctx, dsptb::InstanceRecord& rec, uint32_t index);
 
+// Starts the instance's offline module on the loaded file. False when there's no file or it's already running.
+bool startOfflineRun(ShellContext& ctx, dsptb::InstanceId id);
+// Cancels every offline run and waits for them. Call before the session model goes away.
+void stopOfflineRuns(ShellContext& ctx);
+
 void drawModuleBrowserPanel(ShellContext& ctx);
 void drawChainPanel(ShellContext& ctx);
 void drawInstancePanels(ShellContext& ctx);

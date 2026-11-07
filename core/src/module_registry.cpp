@@ -173,13 +173,10 @@ std::string ModulePackage::dllPathUtf8() const {
 // ----------------------------------------------------------------------------------------------------------
 
 bool ModuleRegistry::isBetter(const ModulePackage& cand, const ModulePackage& existing) const {
-    const int c = compareVersions(cand.manifest.version, existing.manifest.version);
-    if (c != 0)
-        return c > 0;
-    return cand.userFolder && !existing.userFolder;
+    return compareVersions(cand.manifest.version, existing.manifest.version) > 0;
 }
 
-ModulePackage* ModuleRegistry::addPackage(const fs::path& folder, bool user, std::string& error) {
+ModulePackage* ModuleRegistry::addPackage(const fs::path& folder, std::string& error) {
     std::ifstream in(folder / "module.json", std::ios::binary);
     if (!in) {
         error = "no module.json in " + utf8(folder);
@@ -194,7 +191,6 @@ ModulePackage* ModuleRegistry::addPackage(const fs::path& folder, bool user, std
     pkg->folder = fs::absolute(folder, absEc);
     if (absEc)
         pkg->folder = folder;
-    pkg->userFolder = user;
     if (!parseManifest(ss.str(), pkg->manifest, error)) {
         error = "invalid module.json in " + utf8(folder) + ": " + error;
         return nullptr;
@@ -210,7 +206,7 @@ ModulePackage* ModuleRegistry::addPackage(const fs::path& folder, bool user, std
 
     if (ModulePackage* dup = findPackage(pkg->manifest.id)) {
         if (isBetter(*pkg, *dup) && !dup->loaded) {
-            spdlog::info("module {}: {} replaces {} (newer version or user folder)", pkg->manifest.id,
+            spdlog::info("module {}: {} replaces {} (newer version)", pkg->manifest.id,
                          utf8(pkg->folder), utf8(dup->folder));
             *dup = std::move(*pkg);
             return dup;
@@ -224,14 +220,14 @@ ModulePackage* ModuleRegistry::addPackage(const fs::path& folder, bool user, std
     return packages_.back().get();
 }
 
-size_t ModuleRegistry::scan(const std::vector<ScanFolder>& folders) {
+size_t ModuleRegistry::scan(const std::vector<fs::path>& folders) {
     size_t added = 0;
-    for (const ScanFolder& sf : folders) {
+    for (const fs::path& folder : folders) {
         std::error_code ec;
-        if (!fs::is_directory(sf.folder, ec))
+        if (!fs::is_directory(folder, ec))
             continue;
         std::vector<fs::path> children;
-        for (const auto& e : fs::directory_iterator(sf.folder, ec))
+        for (const auto& e : fs::directory_iterator(folder, ec))
             if (e.is_directory(ec) && fs::exists(e.path() / "module.json", ec))
                 children.push_back(e.path());
         std::sort(children.begin(), children.end());
@@ -242,7 +238,7 @@ size_t ModuleRegistry::scan(const std::vector<ScanFolder>& folders) {
                 continue;
             std::string error;
             const size_t before = packages_.size();
-            ModulePackage* p = addPackage(dir, sf.user, error);
+            ModulePackage* p = addPackage(dir, error);
             if (p && packages_.size() > before)
                 ++added;
             else if (!p && error.rfind("duplicate", 0) != 0)

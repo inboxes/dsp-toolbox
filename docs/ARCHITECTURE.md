@@ -29,7 +29,7 @@ Threads share data only through the primitives in `sdk/include/dsptb/rt/`: SPSC 
 
 ## Modules
 
-A module package is a folder with `module.json` and a DLL. The host scans `<exe dir>/modules` and the user modules folder, reads the manifests, and loads a DLL the first time one of its modules is used. Calls into a module are wrapped in SEH handlers, so a crash marks the module Faulted and silences it without taking down the app.
+A module package is a folder with `module.json` and a DLL. The host scans `<exe dir>/modules`, where bundled and installed modules both live, reads the manifests, and loads a DLL the first time one of its modules is used. Calls into a module are wrapped in SEH handlers, so a crash marks the module Faulted and silences it without taking down the app.
 
 **Bundled** modules (`DISTRIBUTION BUNDLED`) ship in the app zip and follow the app version. Everything else is **separate**: it has its own version, zip and release tag, `module/<short>/vX.Y.Z`.
 

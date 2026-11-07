@@ -58,6 +58,10 @@ Renders up to 8 sources for headphones with Steam Audio, as static sounds, orbit
 
 ![The 3D Spatializer](docs/screenshots/spatializer.png)
 
+### Audio Analysis
+
+Five measurement tools in one download: Pitch, Onset, MFCC, Spectral Features and a whole-file report. Each can export its numbers to CSV. Download `org.dsptb.analysis-<version>.zip` ([guide](https://github.com/inboxes/dsp-toolbox/wiki/Audio-Analysis)). It needs the app's version 0.2.0 or newer.
+
 ## Write your own module
 
 Modules are DLLs built against a small C interface with a C++ SDK. You don't need the app's source code:

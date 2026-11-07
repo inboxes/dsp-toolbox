@@ -15,14 +15,12 @@ struct ModuleInstallResult {
     std::string error;         // the reason when !ok
 };
 
-// Installs a module package from a zip. Nothing is written under `modulesDir`
-// unless every entry name, the manifest and the DLL check out. `tmpRoot` must be on the same volume as
-// `modulesDir`, because the package is moved into place by renaming. `isKnown` says whether this process
-// already knows a package with that id: its DLL may be loaded and its manifest cached, so the new files must
-// wait for a restart.
+// Installs a module package from a zip. Only a temporary folder inside `modulesDir` is written until every
+// entry name, the manifest and the DLL check out. It's inside because the package is moved into place by
+// renaming, which can't cross drives. `isKnown` says whether this process already knows a package with that
+// id: its DLL may be loaded and its manifest cached, so the new files must wait for a restart.
 ModuleInstallResult installModuleZip(const std::filesystem::path& zipPath,
                                      const std::filesystem::path& modulesDir,
-                                     const std::filesystem::path& tmpRoot,
                                      const std::function<bool(const std::string&)>& isKnown);
 
 // Swaps in the packages staged by an earlier install. Call before scanning for modules. Returns how many were

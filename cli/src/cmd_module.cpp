@@ -21,16 +21,6 @@ namespace dsptb::cli {
 
 namespace fs = std::filesystem;
 
-namespace {
-
-fs::path exeDir() {
-    wchar_t buf[MAX_PATH * 2];
-    const DWORD n = GetModuleFileNameW(nullptr, buf, static_cast<DWORD>(std::size(buf)));
-    return fs::path(std::wstring(buf, n)).parent_path();
-}
-
-} // namespace
-
 void addValidateCommand(CLI::App& app, int& exitCode) {
     auto* cmd = app.add_subcommand("validate", "Run the module conformance suite on a package folder or DLL");
     auto target = std::make_shared<std::string>();
@@ -104,9 +94,9 @@ void addRenderCommand(CLI::App& app, int& exitCode) {
             return fail(error);
 
         ModuleRegistry registry;
-        std::vector<ScanFolder> folders{{exeDir() / "modules", false}, {dataDir() / "modules", true}};
+        std::vector<fs::path> folders{modulesDir()};
         for (const auto& d : *moduleDirs)
-            folders.push_back({fs::path(d), false});
+            folders.push_back(fs::path(d));
         registry.scan(folders);
 
         RenderOptions opt;
@@ -164,9 +154,9 @@ void runModuleAnalyze(const ModuleAnalyzeArgs& args, int& exitCode) {
         return fail(error);
 
     ModuleRegistry registry;
-    std::vector<ScanFolder> folders{{exeDir() / "modules", false}, {dataDir() / "modules", true}};
+    std::vector<fs::path> folders{modulesDir()};
     for (const auto& d : args.moduleDirs)
-        folders.push_back({fs::path(d), false});
+        folders.push_back(fs::path(d));
     registry.scan(folders);
 
     std::string dump;

@@ -49,9 +49,7 @@ public:
         root = fs::temp_directory_path() / "dsptb-install-test";
         fs::remove_all(root, ec);
         modules = root / "data" / "modules";
-        tmp = root / "data" / "tmp";
         fs::create_directories(modules);
-        fs::create_directories(tmp);
         zip = root / "pkg.zip";
     }
     ~Fixture() {
@@ -81,13 +79,12 @@ public:
     }
 
     ModuleInstallResult install(bool known = false) {
-        return installModuleZip(zip, modules, tmp, [known](const std::string&) { return known; });
+        return installModuleZip(zip, modules, [known](const std::string&) { return known; });
     }
 
-    // Every failure must leave the modules and temp folders empty, and nothing beside them.
+    // Every failure must leave the modules folder empty, and nothing beside it.
     void checkNothingWritten() {
         CHECK(fs::is_empty(modules));
-        CHECK(fs::is_empty(tmp));
         size_t files = 0;
         for (const auto& e : fs::recursive_directory_iterator(root))
             if (e.is_regular_file())
@@ -95,7 +92,7 @@ public:
         CHECK(files == 1); // the zip itself
     }
 
-    fs::path root, modules, tmp, zip;
+    fs::path root, modules, zip;
 };
 
 std::vector<Entry> goodPackage(const std::string& prefix = "") {
@@ -116,7 +113,17 @@ TEST_CASE("module install: a package at the zip root installs") {
     CHECK(r.manifest.id == "example.zipped");
     CHECK(fs::exists(f.modules / "example.zipped" / "zipped.dll"));
     CHECK(fs::exists(f.modules / "example.zipped" / "assets" / "data.bin"));
-    CHECK(fs::is_empty(f.tmp));
+    CHECK_FALSE(fs::exists(f.modules / ".installing")); // nothing left to scan or clean up
+}
+
+TEST_CASE("module install: a folder that can't be written to gives a reason") {
+    Fixture f;
+    f.makeZip(goodPackage());
+    writeAll(f.root / "afile", "a file, so nothing can be created under it");
+    f.modules = f.root / "afile" / "modules";
+    const ModuleInstallResult r = f.install();
+    CHECK_FALSE(r.ok);
+    CHECK(r.error.find("Can't write to") != std::string::npos);
 }
 
 TEST_CASE("module install: a package one folder down installs") {

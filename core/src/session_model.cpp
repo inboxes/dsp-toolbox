@@ -115,7 +115,7 @@ std::vector<SessionInstanceDoc> SessionModel::capture() const {
         d.module = inst.moduleId();
         d.moduleVersion = inst.package().manifest.version;
         d.enabled = r.enabled;
-        d.role = r.isAnalyzer() ? "analyzer" : "processor";
+        d.role = r.isAnalyzer() ? "analyzer" : r.isOffline() ? "offline" : "processor";
         if (r.isAnalyzer())
             d.tap = r.tap == DSPTB_TAP_PRE ? "pre" : "post";
         d.label = r.label;
@@ -196,7 +196,8 @@ void SessionModel::prepareAll() {
     if (sr == 0)
         return;
     for (auto& r : records_) {
-        if (!r.instance || r.instance->faulted())
+        // An offline module may be mid-run, and each run prepares it for the file anyway.
+        if (!r.instance || r.instance->faulted() || r.isOffline())
             continue;
         std::string err;
         if (r.isAnalyzer()) {
@@ -222,10 +223,6 @@ InstanceId SessionModel::add(const std::string& moduleId, std::string& error) {
     const dsptb_module_desc* desc = registry_.descriptor(moduleId, &pkg, error);
     if (!desc)
         return 0;
-    if (desc->kind == DSPTB_KIND_OFFLINE) {
-        error = moduleId + " is an offline module, which this version can't run yet";
-        return 0;
-    }
     const bool analyzer = desc->kind == DSPTB_KIND_ANALYZER;
     auto inst = ModuleInstance::create(nextId_, *pkg, *desc, this, error);
     if (!inst) {
@@ -233,7 +230,9 @@ InstanceId SessionModel::add(const std::string& moduleId, std::string& error) {
         return 0;
     }
     if (engine_.sampleRate() > 0) {
-        const uint32_t block = analyzer ? AnalysisHost::kChunk : engine_.maxBlockFrames();
+        const uint32_t block = analyzer                          ? AnalysisHost::kChunk
+                               : desc->kind == DSPTB_KIND_OFFLINE ? kOfflineMaxBlock
+                                                                  : engine_.maxBlockFrames();
         if (!inst->prepare(static_cast<double>(engine_.sampleRate()), block, false, error)) {
             if (inst->faulted())
                 registry_.markFaulted(moduleId, error);
@@ -252,7 +251,7 @@ InstanceId SessionModel::add(const std::string& moduleId, std::string& error) {
             analysis_.attach(rec.instance, rec.tap, engine_.sampleRate() ? engine_.sampleRate() : 48000);
     }
     records_.push_back(std::move(rec));
-    if (!analyzer)
+    if (desc->kind == DSPTB_KIND_PROCESSOR)
         audioOrder_.push_back(records_.back().id);
     publish();
     return records_.back().id;
@@ -262,10 +261,11 @@ bool SessionModel::remove(InstanceId id) {
     InstanceRecord* rec = find(id);
     if (!rec || rec->removing)
         return false;
-    if (rec->isAnalyzer()) {
-        // No audio goes through an analyzer, so there is nothing to ramp. The ring stays alive in the
-        // snapshots that still mention it until the audio thread has retired them.
-        analysis_.detach(id);
+    if (!rec->isProcessor()) {
+        // No audio goes through an analyzer or offline module, so there is nothing to ramp. A ring stays alive
+        // in the snapshots that still mention it until the audio thread has retired them.
+        if (rec->isAnalyzer())
+            analysis_.detach(id);
         records_.erase(records_.begin() + (rec - records_.data()));
         publish();
         return true;
@@ -284,7 +284,7 @@ bool SessionModel::remove(InstanceId id) {
 
 bool SessionModel::move(InstanceId id, size_t newIndex) {
     const auto it = std::find_if(records_.begin(), records_.end(), [&](const InstanceRecord& r) {
-        return r.id == id && !r.removing && !r.isAnalyzer();
+        return r.id == id && !r.removing && r.isProcessor();
     });
     if (it == records_.end())
         return false;
@@ -294,14 +294,14 @@ bool SessionModel::move(InstanceId id, size_t newIndex) {
         for (const auto& r : records_) {
             if (&r == upTo)
                 break;
-            if (!r.isAnalyzer())
+            if (r.isProcessor())
                 ++k;
         }
         return k;
     };
     size_t procCount = 0;
     for (const auto& r : records_)
-        procCount += r.isAnalyzer() ? 0 : 1;
+        procCount += r.isProcessor() ? 1 : 0;
     newIndex = std::min(newIndex, procCount - 1);
     if (procIndex(&*it) == newIndex)
         return true;
@@ -311,7 +311,7 @@ bool SessionModel::move(InstanceId id, size_t newIndex) {
     auto pos = records_.end();
     size_t k = 0;
     for (auto p = records_.begin(); p != records_.end(); ++p) {
-        if (p->isAnalyzer())
+        if (!p->isProcessor())
             continue;
         if (k++ == newIndex) {
             pos = p;
@@ -323,7 +323,7 @@ bool SessionModel::move(InstanceId id, size_t newIndex) {
     const auto rebuildOrder = [&] {
         audioOrder_.clear();
         for (const auto& r : records_)
-            if (!r.isAnalyzer())
+            if (r.isProcessor())
                 audioOrder_.push_back(r.id);
     };
     if (!engineLive()) {
@@ -382,7 +382,7 @@ void SessionModel::tick(double now, std::vector<SessionMessage>& messages) {
     if (reorderPending_ && now >= reorderAt_) {
         audioOrder_.clear();
         for (const auto& r : records_)
-            if (!r.isAnalyzer())
+            if (r.isProcessor())
                 audioOrder_.push_back(r.id);
         reorderPending_ = false;
         changed = true; // new order, outputMuted cleared: fades back in

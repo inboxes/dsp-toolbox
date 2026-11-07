@@ -41,6 +41,18 @@ std::filesystem::path dataDir() {
     return dir;
 }
 
+std::filesystem::path appDir() {
+    wchar_t buf[MAX_PATH * 2];
+    const DWORD n = GetModuleFileNameW(nullptr, buf, static_cast<DWORD>(std::size(buf)));
+    if (n == 0 || n >= std::size(buf)) // failed, or the path was truncated
+        return {};
+    return std::filesystem::path(std::wstring(buf, n)).parent_path();
+}
+
+std::filesystem::path modulesDir() {
+    return appDir() / "modules";
+}
+
 std::filesystem::path logDir() {
     auto dir = dataDir() / "logs";
     std::error_code ec;

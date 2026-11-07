@@ -9,6 +9,7 @@ namespace dsptb {
 struct ManifestModule {
     std::string id;
     std::string kind; // "processor" | "analyzer" | "offline"
+    std::string name; // optional: shown in the Module Browser for a package with several modules
 };
 
 // module.json (MODULE_SDK §2).
