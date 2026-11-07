@@ -14,7 +14,12 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 - Key detection estimates the recording's tuning instead of assuming A4 = 440 Hz.
 
-## [0.1.0] - Unreleased
+### Fixed
+
+- Analyzers stop while a file is paused or has ended, instead of scrolling silence.
+- `dsptb-cli` logs to stderr, so a log line can't break `--json` output.
+
+## [0.1.0] - 2026-11-06
 
 First release.
 

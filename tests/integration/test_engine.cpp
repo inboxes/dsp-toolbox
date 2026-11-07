@@ -396,6 +396,46 @@ TEST_CASE("engine: a lost device is reported and the transport survives") {
     CHECK(rig.engine.deviceLost());
 }
 
+TEST_CASE("engine: pausing stops analyzer taps after the fade-out, and a recording's tap keeps going") {
+    Rig rig(EngineOptions{}, /*capture=*/false, 256, /*reserveFrames=*/kRate);
+    rig.engine.setFile(makeFile(sine(440.0, -6.0, 5.0)));
+    TapRing analyzer(kRate), recording(kRate);
+    analyzer.stopsWhenPaused = true;
+    auto snap = std::make_unique<ChainSnapshot>();
+    snap->preTaps.push_back(&analyzer);
+    snap->postTaps.push_back(&recording);
+    rig.engine.publishChain(std::move(snap));
+    rig.engine.play();
+
+    std::vector<float> drain(8192);
+    const auto run = [&](size_t blocks) {
+        for (size_t b = 0; b < blocks; ++b) {
+            rig.nb->pump(256);
+            analyzer.ring.read(drain.data(), drain.size());
+            recording.ring.read(drain.data(), drain.size());
+        }
+    };
+    run(20);
+    CHECK(analyzer.framesWritten.load() == 20u * 256u);
+
+    rig.engine.pause();
+    run(20); // longer than any fade-out
+    const uint64_t paused = analyzer.framesWritten.load();
+    CHECK(paused > 20u * 256u); // the fade-out arrived
+    const uint64_t recorded = recording.framesWritten.load();
+    run(20);
+    CHECK(analyzer.framesWritten.load() == paused);
+    CHECK(recording.framesWritten.load() == recorded + 20u * 256u);
+
+    // A seek while playing dips the gate but must not stop the stream.
+    rig.engine.play();
+    run(20);
+    const uint64_t beforeSeek = analyzer.framesWritten.load();
+    rig.engine.seekFrames(kRate);
+    run(20);
+    CHECK(analyzer.framesWritten.load() == beforeSeek + 20u * 256u);
+}
+
 TEST_CASE("engine: 30 s of mixed activity makes no allocation on the audio thread") {
     rt::resetRtGuardViolations();
     Rig rig(EngineOptions{}, /*capture=*/true, 256, /*reserveFrames=*/kRate * 31);

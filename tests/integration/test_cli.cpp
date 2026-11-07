@@ -17,8 +17,10 @@ struct RunResult {
 };
 
 RunResult runCli(const std::string& args) {
+    // --json promises clean JSON on stdout, so read only that. Logs go to stderr.
+    const char* const redirect = args.find("--json") != std::string::npos ? " 2>nul" : " 2>&1";
     // cmd.exe strips one pair of outer quotes, so wrap the whole command line.
-    const std::string cmd = "\"\"" + std::string(DSPTB_CLI_PATH) + "\" " + args + " 2>&1\"";
+    const std::string cmd = "\"\"" + std::string(DSPTB_CLI_PATH) + "\" " + args + redirect + "\"";
     RunResult r;
     FILE* pipe = _popen(cmd.c_str(), "r");
     REQUIRE(pipe != nullptr);

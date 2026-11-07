@@ -288,6 +288,7 @@ void Engine::processChunk(const float* in, float* out, uint32_t n) noexcept {
         else if (gate_ > target)
             gate_ = std::max(target, gate_ - gateStep_);
     };
+    const bool gateWasOpen = gate_ > 0.0f;
     for (uint32_t i = 0; i < n; ++i) {
         // File transport: a gate ramps audio in and out so play, pause and seek do not click. A seek first
         // fades the gate to zero, jumps, then fades back in. With declickMs = 0 the gate is simply on/off.
@@ -335,8 +336,15 @@ void Engine::processChunk(const float* in, float* out, uint32_t n) noexcept {
 
     // ---- PRE tap -> processor chain -> POST tap ----
     if (chain) {
-        for (TapRing* tap : chain->preTaps)
-            pushTap(*tap, busL_.data(), busR_.data(), n);
+        // A paused file gives analyzers nothing, so their views hold still. The fade-out still reaches them, and a
+        // seek's dip can't close the gate for a whole block.
+        const bool sourceActive = micSelected || gateWasOpen || gate_ > 0.0f;
+        const auto feedTaps = [&](const std::vector<TapRing*>& taps) noexcept {
+            for (TapRing* tap : taps)
+                if (sourceActive || !tap->stopsWhenPaused)
+                    pushTap(*tap, busL_.data(), busR_.data(), n);
+        };
+        feedTaps(chain->preTaps);
 
         dsptb_transport transport{};
         transport.struct_size = sizeof(transport);
@@ -365,8 +373,7 @@ void Engine::processChunk(const float* in, float* out, uint32_t n) noexcept {
                 busR_[i] *= g;
             }
         }
-        for (TapRing* tap : chain->postTaps)
-            pushTap(*tap, busL_.data(), busR_.data(), n);
+        feedTaps(chain->postTaps);
     }
     seekedFlag_ = didSeek || didWrap;
     sampleClock_ += n;

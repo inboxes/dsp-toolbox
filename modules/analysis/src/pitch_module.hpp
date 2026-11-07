@@ -138,7 +138,11 @@ public:
             if (!items.empty()) {
                 const double newest = items.back().t;
                 const size_t step = std::max<size_t>(1, items.size() / static_cast<size_t>(p.w * 2.0f));
+                // Frames are about 5 ms apart, so a bigger jump is the tracker changing its mind, not a glide. A line
+                // across it would paint a bar that isn't in the sound.
+                constexpr double kMaxGlideOctaves = 0.5;
                 bool hasPrev = false;
+                float prevHz = 0.0f;
                 dsptb_vec2 prev{};
                 for (size_t i = 0; i < items.size(); i += step) {
                     const Record& r = items[i];
@@ -147,11 +151,14 @@ public:
                         continue;
                     }
                     const dsptb_vec2 cur{p.xOf(r.t, newest, history), yOf(r.hz)};
-                    if (hasPrev) {
-                        const auto alpha = static_cast<uint8_t>(90.0f + 165.0f * std::clamp(r.confidence, 0.0f, 1.0f));
-                        c.line(prev, cur, rgba(120, 200, 255, alpha), 2.0f);
-                    }
+                    const auto alpha = static_cast<uint8_t>(90.0f + 165.0f * std::clamp(r.confidence, 0.0f, 1.0f));
+                    const auto colour = rgba(120, 200, 255, alpha);
+                    if (hasPrev && std::abs(std::log2(static_cast<double>(r.hz / prevHz))) <= kMaxGlideOctaves)
+                        c.line(prev, cur, colour, 2.0f);
+                    else // the start of a run, which may be one frame long
+                        c.fillRect({cur.x - s, cur.y - s}, {cur.x + s, cur.y + s}, colour);
                     prev = cur;
+                    prevHz = r.hz;
                     hasPrev = true;
                 }
             }

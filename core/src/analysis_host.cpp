@@ -74,6 +74,7 @@ std::shared_ptr<TapRing> AnalysisHost::attach(const std::shared_ptr<ModuleInstan
     auto runner = std::make_unique<Runner>();
     runner->inst = inst;
     runner->ring = std::make_shared<TapRing>(capacity);
+    runner->ring->stopsWhenPaused = true;
     runner->tap.store(tap);
     runner->inter.assign(static_cast<size_t>(kChunk) * 2, 0.0f);
     runner->l.assign(kChunk, 0.0f);

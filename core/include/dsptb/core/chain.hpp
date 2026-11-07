@@ -20,6 +20,9 @@ struct TapRing {
     rt::SpscRing<float> ring;
     std::atomic<uint64_t> framesWritten{0}; // sample clock of the next frame to be written
     std::atomic<uint64_t> droppedFrames{0};
+    // An analyzer's ring gets nothing while a paused file is the source. A recording keeps its timeline, so its
+    // ring leaves this off. Set before the ring is published.
+    bool stopsWhenPaused = false;
 };
 
 // One processor in the chain. The instance is shared with the SessionModel and with older/newer snapshots, so
