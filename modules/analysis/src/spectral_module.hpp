@@ -38,6 +38,8 @@ class SpectralModule final : public Analyzer<SpectralModule> {
     };
 
     static float rmsDb(const dc::SpectralFeatures& f) { return 20.0f * std::log10(std::max(f.rms, 1e-6f)); }
+    // Music's flatness is around 0.0001, which is a dead line on a 0 to 1 scale. It's a power ratio, hence 10 log.
+    static float flatnessDb(const dc::SpectralFeatures& f) { return 10.0f * std::log10(std::max(f.flatness, 1e-8f)); }
 
 public:
     static constexpr ModuleInfo info{.id = "org.dsptb.spectralfeatures",
@@ -126,7 +128,7 @@ public:
             {kShowCentroid, "Centroid", Axis::LogHz, [](const dc::SpectralFeatures& f) { return f.centroidHz; }},
             {kShowSpread, "Spread", Axis::LogHz, [](const dc::SpectralFeatures& f) { return f.spreadHz; }},
             {kShowRolloff, "Rolloff", Axis::LogHz, [](const dc::SpectralFeatures& f) { return f.rolloffHz; }},
-            {kShowFlatness, "Flatness", Axis::Unit, [](const dc::SpectralFeatures& f) { return f.flatness; }},
+            {kShowFlatness, "Flatness", Axis::Db, [](const dc::SpectralFeatures& f) { return flatnessDb(f); }},
             {kShowFlux, "Flux", Axis::Auto, [](const dc::SpectralFeatures& f) { return f.flux; }},
             {kShowZcr, "Zero crossings", Axis::Unit, [](const dc::SpectralFeatures& f) { return f.zcr; }},
             {kShowRms, "RMS", Axis::Db, [](const dc::SpectralFeatures& f) { return rmsDb(f); }},
@@ -196,8 +198,8 @@ private:
                 c.polyline(pts_.data(), static_cast<uint32_t>(pts_.size()), rgba(120, 200, 255), 1.5f);
                 const float latest = strip.value(items.back().f);
                 const char* unit = strip.axis == Axis::LogHz ? " Hz" : strip.axis == Axis::Db ? " dB" : "";
-                std::snprintf(text, sizeof(text), strip.axis == Axis::LogHz ? "%s   %.0f%s" : "%s   %.3f%s", strip.name,
-                              static_cast<double>(latest), unit);
+                const char* format = strip.axis == Axis::LogHz ? "%s   %.0f%s" : strip.axis == Axis::Db ? "%s   %.1f%s" : "%s   %.3f%s";
+                std::snprintf(text, sizeof(text), format, strip.name, static_cast<double>(latest), unit);
             }
             c.text({p.x0 + 6.0f * s, p.y0 + 2.0f * s}, rgba(230, 232, 238), text);
         }

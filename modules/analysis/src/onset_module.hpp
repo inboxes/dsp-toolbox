@@ -3,6 +3,7 @@
 // Onset (org.dsptb.onset): marks where new sounds start, and shows the novelty curve behind each decision.
 
 #include "common.hpp"
+#include "tempo.hpp"
 
 #include <dsptb/dsp_common/onset.hpp>
 
@@ -89,7 +90,8 @@ public:
 
     std::string dumpFrames() override {
         std::string out = "{\"module\":\"org.dsptb.onset\",\"sampleRate\":" + jsonNumber(sampleRate_, "%.1f") +
-                          ",\"hop\":" + std::to_string(config_.hop) + ",\"onsets\":[";
+                          ",\"hop\":" + std::to_string(config_.hop) +
+                          ",\"approxBpm\":" + jsonNumber(estimateTempoBpm(dumpOnsets_), "%.1f") + ",\"onsets\":[";
         char buf[120];
         for (size_t i = 0; i < dumpOnsets_.size(); ++i) {
             std::snprintf(buf, sizeof(buf), "%s{\"timeS\":%.6f,\"strength\":%.4f}", i ? "," : "", dumpOnsets_[i].t,
@@ -115,15 +117,20 @@ public:
         if (c.button("Reset")) {
             onsets_.clear();
             total_ = 0;
+            bpmAtTotal_ = 0;
+            bpm_ = 0.0;
         }
         c.sameLine();
         if (c.button("Export CSV"))
             exportCsv();
         c.sameLine();
         char summary[96];
-        const double bpm = estimateBpm();
-        if (bpm > 0.0)
-            std::snprintf(summary, sizeof(summary), "%zu onsets   approx. %.0f BPM", total_, bpm);
+        if (bpmAtTotal_ != total_) { // only a new onset can change it
+            bpm_ = estimateTempoBpm(onsets_.items());
+            bpmAtTotal_ = total_;
+        }
+        if (bpm_ > 0.0)
+            std::snprintf(summary, sizeof(summary), "%zu onsets   approx. %.0f BPM", total_, bpm_);
         else
             std::snprintf(summary, sizeof(summary), "%zu onsets", total_);
         c.label(summary);
@@ -164,22 +171,6 @@ public:
     }
 
 private:
-    // From the median gap of the last 16 onsets, so one missed hit doesn't swing it. Labelled "approx." in the
-    // panel: it's a hint, not a beat tracker.
-    double estimateBpm() const {
-        const auto& all = onsets_.items();
-        if (all.size() < 4)
-            return 0.0;
-        std::vector<double> gaps;
-        const size_t first = all.size() > 16 ? all.size() - 16 : 0;
-        for (size_t i = first + 1; i < all.size(); ++i)
-            gaps.push_back(all[i].t - all[i - 1].t);
-        std::nth_element(gaps.begin(), gaps.begin() + static_cast<std::ptrdiff_t>(gaps.size() / 2), gaps.end());
-        const double median = gaps[gaps.size() / 2];
-        const double bpm = median > 0.0 ? 60.0 / median : 0.0;
-        return bpm >= 30.0 && bpm <= 300.0 ? bpm : 0.0; // anything else isn't a beat
-    }
-
     void rebuild(double interval) {
         interval_ = interval;
         config_.fftSize = dc::fftSizeForRate(sampleRate_, 1024);
@@ -217,6 +208,8 @@ private:
     double interval_ = 0.0;
     uint64_t frameBase_ = 0;
     size_t total_ = 0;
+    size_t bpmAtTotal_ = 0;
+    double bpm_ = 0.0;
     bool offline_ = false;
 };
 

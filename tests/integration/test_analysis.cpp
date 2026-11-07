@@ -203,7 +203,34 @@ TEST_CASE("onset: a steady sine and silence") {
     const json j = dump("org.dsptb.onset", sine(1000.0, -6.0, 10.0));
     for (const auto& o : j["onsets"])
         CHECK(o["timeS"].get<double>() <= 0.2);
-    CHECK(dump("org.dsptb.onset", silence(2.0))["onsets"].empty());
+    const json quiet = dump("org.dsptb.onset", silence(2.0));
+    CHECK(quiet["onsets"].empty());
+    CHECK(quiet["approxBpm"].get<double>() == 0.0);
+}
+
+TEST_CASE("onset: tempo follows the beat, not the fastest notes") {
+    // Strong hits on the beat, with weaker ones at `subdivisions` per beat, like a kick and a hi-hat.
+    const auto groove = [](double bpm, int subdivisions) {
+        const double step = 60.0 / bpm / subdivisions * kRate;
+        const auto decay = static_cast<size_t>(0.02 * kRate);
+        uint32_t state = 1;
+        return makeSignal(30.0, kRate, [=](size_t i) mutable {
+            state = 1664525u * state + 1013904223u;
+            const auto hit = static_cast<size_t>(static_cast<double>(i) / step);
+            const auto since = i - static_cast<size_t>(static_cast<double>(hit) * step);
+            if (since >= decay)
+                return 0.0;
+            const double level = hit % static_cast<size_t>(subdivisions) == 0 ? 0.8 : 0.25;
+            return level * (1.0 - static_cast<double>(since) / static_cast<double>(decay)) *
+                   (2.0 * (static_cast<double>(state) / 4294967296.0) - 1.0);
+        });
+    };
+    const auto bpmOf = [](const AudioBuffer& in) { return dump("org.dsptb.onset", in)["approxBpm"].get<double>(); };
+    CHECK(std::abs(bpmOf(clicks(120.0, 30.0)) - 120.0) <= 2.0);
+    CHECK(std::abs(bpmOf(clicks(60.0, 30.0)) - 60.0) <= 2.0);
+    CHECK(std::abs(bpmOf(groove(90.0, 2)) - 90.0) <= 2.0);
+    CHECK(std::abs(bpmOf(groove(120.0, 4)) - 120.0) <= 2.0);
+    CHECK(std::abs(bpmOf(groove(145.0, 2)) - 145.0) <= 2.0);
 }
 
 TEST_CASE("spectral features: the acceptance table") {
