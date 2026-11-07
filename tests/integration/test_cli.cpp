@@ -5,6 +5,7 @@
 
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
 #include <string>
 
 namespace fs = std::filesystem;
@@ -86,6 +87,22 @@ TEST_CASE("cli: gen vowel and chords") {
 
     CHECK(runCli("gen chords --chords Am,H --out " + q(chords)).exitCode == 2);
     CHECK(runCli("gen chords --out " + q(chords)).exitCode == 2);
+}
+
+TEST_CASE("cli: T8 Autotune finds the key of the render input and logs it") {
+    const fs::path chords = dir() / "t8_chords.wav";
+    REQUIRE(runCli("gen chords --chords Am,Dm,E,Am,Am,Dm,E,Am --out " + q(chords)).exitCode == 0);
+    const fs::path session = dir() / "t8.dsptb.json";
+    {
+        std::ofstream f(session);
+        f << R"({"format":"dsptb-session","version":2,"instances":[{"module":"org.dsptb.autotune",)"
+          << R"("params":{"key_source":0}}]})";
+    }
+    const RunResult r = runCli("render --session " + q(session) + " --in " + q(chords) + " --out " +
+                               q(dir() / "t8_out.wav"));
+    INFO(r.out);
+    CHECK(r.exitCode == 0);
+    CHECK(r.out.find("Key detected: A minor (confident") != std::string::npos);
 }
 
 TEST_CASE("cli: compare exits 0 for identical files and 1 above the tolerance") {

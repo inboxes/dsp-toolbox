@@ -6,6 +6,7 @@
 #include "pitch_tracker.hpp"
 #include "target_picker.hpp"
 
+#include <dsptb/dsp_common/key.hpp>
 #include <dsptb/dsp_common/pitch.hpp>
 #include <dsptb/dsp_common/psola.hpp>
 #include <dsptb/rt/spsc_ring.hpp>
@@ -14,9 +15,13 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdio>
 #include <memory>
+#include <mutex>
+#include <thread>
 #include <vector>
 
 DSPTB_DEFINE_RT_GUARD();
@@ -49,7 +54,10 @@ public:
         Enum("voice_range", "Voice range", kVoiceRanges, 0), Float("silence_db", "Ignore below", "dB", -70.0f, -30.0f, -50.0f),
         Enum("shifter_mode", "Shifter", kShifterModes, kAuto).hidden());
 
+    ~Autotune() override { stopKeyJob(); }
+
     bool prepare(const PrepareInfo& p) override {
+        stopKeyJob();
         sampleRate_ = p.sampleRate;
         const bool highRate = p.sampleRate > 60000.0;
         hop_ = highRate ? 512u : 256u;
@@ -74,6 +82,13 @@ public:
         out_.assign(p.maxBlockFrames, 0.0f);
         smoother_.prepare(static_cast<float>(1000.0 * hop_ / p.sampleRate));
         resetState();
+
+        // Live, the key is found on a thread of its own so the file can change at any time. A render must give
+        // the same answer every time, so it finds the key before it starts.
+        if (p.offline)
+            detectKey(host().workingFileGeneration());
+        else
+            startKeyJob();
         return true;
     }
 
@@ -204,6 +219,77 @@ private:
         frames_.tryPush(frame);
     }
 
+    enum KeyStatus : int { kNoFile, kDetecting, kDone };
+    static constexpr size_t kKeyChunk = 65536;
+
+    void startKeyJob() {
+        stopKey_.store(false, std::memory_order_relaxed);
+        keyThread_ = std::thread([this] {
+            uint64_t seen = ~0ull;
+            while (!stopKey_.load(std::memory_order_relaxed)) {
+                // The ABI has no "file changed" callback, and draw() doesn't run while the panel is hidden, so poll.
+                const uint64_t generation = host().workingFileGeneration();
+                if (generation != seen && detectKey(generation))
+                    seen = generation;
+                std::unique_lock lock(wakeMutex_);
+                wake_.wait_for(lock, std::chrono::milliseconds(250),
+                               [this] { return stopKey_.load(std::memory_order_relaxed); });
+            }
+        });
+    }
+
+    void stopKeyJob() {
+        if (!keyThread_.joinable())
+            return;
+        {
+            std::lock_guard lock(wakeMutex_);
+            stopKey_.store(true, std::memory_order_relaxed);
+        }
+        wake_.notify_all();
+        keyThread_.join();
+    }
+
+    // Reads the whole working file. False when it stopped early, so the caller tries again.
+    bool detectKey(uint64_t generation) {
+        if (generation == 0) {
+            detected_.store(0, std::memory_order_release);
+            keyStatus_.store(kNoFile, std::memory_order_release);
+            return true;
+        }
+        keyStatus_.store(kDetecting, std::memory_order_release);
+        WorkingFile file(host());
+        if (!file) {
+            detected_.store(0, std::memory_order_release);
+            keyStatus_.store(kNoFile, std::memory_order_release);
+            return true;
+        }
+        const dsptb_file_view& v = file.view();
+        dsp::KeyDetector detector(v.sample_rate);
+        std::vector<float> mono(kKeyChunk);
+        for (uint64_t at = 0; at < v.num_frames; at += kKeyChunk) {
+            if (stopKey_.load(std::memory_order_relaxed) || host().workingFileGeneration() != v.generation)
+                return false; // a new file arrived, or the module is going away
+            const auto n = static_cast<size_t>(std::min<uint64_t>(kKeyChunk, v.num_frames - at));
+            for (size_t i = 0; i < n; ++i)
+                mono[i] = 0.5f * (file.channel(0)[at + i] + file.channel(1)[at + i]);
+            detector.push(mono.data(), n);
+        }
+        const dsp::KeyResult r = detector.result();
+        uint32_t packed = 0;
+        if (r.valid) {
+            packed = 1u | (r.confident ? 2u : 0u) | (r.mode == dsp::KeyMode::Minor ? 4u : 0u) |
+                     (static_cast<uint32_t>(r.root) << 8);
+            char line[160];
+            std::snprintf(line, sizeof(line), "Key detected: %s %s (%s, r=%.2f, margin=%.2f)", kKeys[r.root],
+                          r.mode == dsp::KeyMode::Minor ? "minor" : "major", r.confident ? "confident" : "not confident",
+                          static_cast<double>(r.correlation), static_cast<double>(r.margin));
+            host().log(DSPTB_LOG_INFO, line);
+        }
+        detected_.store(packed, std::memory_order_release);
+        keyStatus_.store(kDone, std::memory_order_release);
+        return true;
+    }
+
     Key shownKey() const {
         const Host& h = host();
         const bool manual = static_cast<int>(h.getParam(kKeySource) + 0.5f) == kManual;
@@ -227,7 +313,9 @@ private:
             h.setParam(kKeySource, static_cast<float>(kManual));
         }
         if (!manual) {
-            c.label(!detected.valid        ? "No track loaded: using Chromatic"
+            const int status = keyStatus_.load(std::memory_order_acquire);
+            c.label(status == kDetecting     ? "Detecting key..."
+                    : !detected.valid        ? "No track loaded: using Chromatic"
                     : detected.confident ? "Detected"
                                          : "Not sure: using Chromatic");
         } else if (detected.valid) {
@@ -267,6 +355,13 @@ private:
     // Key detection publishes one packed value, so a reader never sees half of a result.
     std::atomic<uint32_t> detected_{0};
     rt::SpscRing<PitchFrame> frames_{1024};
+
+    // Key job thread.
+    std::thread keyThread_;
+    std::atomic<bool> stopKey_{false};
+    std::mutex wakeMutex_;
+    std::condition_variable wake_;
+    std::atomic<int> keyStatus_{kNoFile};
 
     // UI thread only.
     PitchGraph graph_;
