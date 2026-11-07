@@ -70,6 +70,24 @@ TEST_CASE("cli: gen options, formats and errors") {
     CHECK(runCli("analyze " + q(dir() / "missing.wav")).exitCode == 2);
 }
 
+TEST_CASE("cli: gen vowel and chords") {
+    const fs::path vowel = dir() / "vowel.wav";
+    REQUIRE(runCli("gen vowel --freq 220 --vibrato-hz 6 --vibrato-cents 50 --dbfs -12 --seconds 1 --out " + q(vowel))
+                .exitCode == 0);
+    const RunResult v = runCli("analyze " + q(vowel) + " --json");
+    REQUIRE(v.exitCode == 0);
+    CHECK(nlohmann::json::parse(v.out)["peakDbfs"].get<double>() == doctest::Approx(-12.0).epsilon(0.001));
+
+    const fs::path chords = dir() / "chords.wav";
+    REQUIRE(runCli("gen chords --chords Am,F#m,Bb --seconds-per-chord 0.5 --out " + q(chords)).exitCode == 0);
+    const RunResult c = runCli("analyze " + q(chords) + " --json");
+    REQUIRE(c.exitCode == 0);
+    CHECK(nlohmann::json::parse(c.out)["seconds"].get<double>() == doctest::Approx(1.5));
+
+    CHECK(runCli("gen chords --chords Am,H --out " + q(chords)).exitCode == 2);
+    CHECK(runCli("gen chords --out " + q(chords)).exitCode == 2);
+}
+
 TEST_CASE("cli: compare exits 0 for identical files and 1 above the tolerance") {
     const fs::path a = dir() / "a.wav", b = dir() / "b.wav", c = dir() / "c.wav";
     REQUIRE(runCli("gen sine --dbfs -6 --seconds 1 --out " + q(a)).exitCode == 0);

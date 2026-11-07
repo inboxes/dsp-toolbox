@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <sstream>
+#include <vector>
 
 namespace dsptb {
 
@@ -52,13 +54,114 @@ bool parseSignalType(const std::string& name, SignalType& out) {
     } kTypes[] = {{"sine", SignalType::Sine},      {"noise", SignalType::Noise},
                   {"pink", SignalType::Pink},      {"impulse", SignalType::Impulse},
                   {"sweep", SignalType::Sweep},    {"clicks", SignalType::Clicks},
-                  {"silence", SignalType::Silence}};
+                  {"silence", SignalType::Silence},  {"vowel", SignalType::Vowel},
+                  {"chords", SignalType::Chords}};
     for (const auto& e : kTypes)
         if (name == e.n) {
             out = e.t;
             return true;
         }
     return false;
+}
+
+namespace {
+
+struct Chord {
+    int root = 0; // MIDI note in the octave from C3
+    bool minor = false;
+};
+
+bool parseChord(const std::string& text, Chord& out) {
+    static constexpr int kSemitones[] = {9, 11, 0, 2, 4, 5, 7}; // A to G
+    if (text.empty() || text[0] < 'A' || text[0] > 'G')
+        return false;
+    int pc = kSemitones[text[0] - 'A'];
+    size_t i = 1;
+    if (i < text.size() && (text[i] == '#' || text[i] == 'b'))
+        pc += text[i++] == '#' ? 1 : -1;
+    out.minor = i < text.size() && text[i] == 'm';
+    if (out.minor)
+        ++i;
+    out.root = 48 + (pc + 12) % 12;
+    return i == text.size();
+}
+
+bool parseChords(const std::string& list, std::vector<Chord>& out) {
+    std::stringstream parts(list);
+    std::string item;
+    while (std::getline(parts, item, ',')) {
+        Chord chord;
+        if (!parseChord(item, chord))
+            return false;
+        out.push_back(chord);
+    }
+    return !out.empty();
+}
+
+void generateVowel(const GenParams& p, double amp, double sr, std::vector<double>& mono) {
+    const double nyquistLimit = 0.45 * sr;
+    double phase = 0.0;
+    for (size_t n = 0; n < mono.size(); ++n) {
+        const double t = static_cast<double>(n) / sr;
+        const double cents = p.vibratoCents * std::sin(2.0 * kPi * p.vibratoHz * t);
+        const double f = p.freq * std::pow(2.0, cents / 1200.0);
+        // Harmonics are counted per sample, so vibrato can't push one past the limit and alias.
+        const int harmonics = std::max(1, static_cast<int>(nyquistLimit / f));
+        double x = 0.0;
+        for (int k = 1; k <= harmonics; ++k)
+            x += std::cos(phase * k);
+        mono[n] = x / harmonics;
+        phase += 2.0 * kPi * f / sr;
+        if (phase > 2.0 * kPi)
+            phase -= 2.0 * kPi;
+    }
+    static constexpr double kFormants[][2] = {{700.0, 80.0}, {1220.0, 90.0}, {2600.0, 120.0}};
+    for (const auto& formant : kFormants) {
+        const double r = std::exp(-kPi * formant[1] / sr);
+        const double a1 = 2.0 * r * std::cos(2.0 * kPi * formant[0] / sr);
+        const double a2 = -r * r;
+        const double g = 1.0 - a1 - a2;
+        double y1 = 0.0, y2 = 0.0;
+        for (double& s : mono) {
+            const double y = g * s + a1 * y1 + a2 * y2;
+            y2 = y1;
+            y1 = y;
+            s = y;
+        }
+    }
+    double peak = 0.0;
+    for (const double s : mono)
+        peak = std::max(peak, std::fabs(s));
+    if (peak > 0.0)
+        for (double& s : mono)
+            s *= amp / peak;
+}
+
+void generateChords(const std::vector<Chord>& chords, double amp, double sr, double secondsPerChord,
+                    std::vector<double>& mono) {
+    const size_t perChord = static_cast<size_t>(std::llround(secondsPerChord * sr));
+    const size_t fade = std::min<size_t>(perChord / 2, static_cast<size_t>(0.005 * sr)); // no clicks between chords
+    mono.assign(perChord * chords.size(), 0.0);
+    for (size_t c = 0; c < chords.size(); ++c) {
+        const int root = chords[c].root;
+        const int notes[] = {root - 12, root, root + (chords[c].minor ? 3 : 4), root + 7};
+        for (size_t n = 0; n < perChord; ++n) {
+            const double t = static_cast<double>(n) / sr;
+            const auto edge = static_cast<double>(std::min(n, perChord - 1 - n));
+            const double gain = fade > 0 ? std::min(1.0, edge / static_cast<double>(fade)) : 1.0;
+            double x = 0.0;
+            for (const int note : notes)
+                x += std::sin(2.0 * kPi * 440.0 * std::pow(2.0, (note - 69) / 12.0) * t);
+            mono[c * perChord + n] = amp * gain * x;
+        }
+    }
+}
+
+} // namespace
+
+bool validChordList(const std::string& chords) {
+    std::vector<Chord> parsed;
+    return parseChords(chords, parsed);
 }
 
 const char* signalTypeName(SignalType type) {
@@ -77,6 +180,10 @@ const char* signalTypeName(SignalType type) {
         return "clicks";
     case SignalType::Silence:
         return "silence";
+    case SignalType::Vowel:
+        return "vowel";
+    case SignalType::Chords:
+        return "chords";
     }
     return "?";
 }
@@ -152,10 +259,21 @@ PcmAudio generateSignal(const GenParams& p) {
     }
     case SignalType::Silence:
         break;
+    case SignalType::Vowel:
+        generateVowel(p, amp, sr, mono);
+        break;
+    case SignalType::Chords: {
+        std::vector<Chord> chords;
+        if (parseChords(p.chords, chords))
+            generateChords(chords, amp, sr, p.secondsPerChord, mono);
+        else
+            mono.clear();
+        break;
+    }
     }
 
-    out.samples.resize(frames * out.channels);
-    for (size_t n = 0; n < frames; ++n)
+    out.samples.resize(mono.size() * out.channels);
+    for (size_t n = 0; n < mono.size(); ++n)
         for (uint32_t c = 0; c < out.channels; ++c)
             out.samples[n * out.channels + c] = static_cast<float>(mono[n]);
     return out;

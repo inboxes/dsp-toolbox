@@ -83,7 +83,7 @@ void addDevicesCommand(CLI::App& app, int& exitCode) {
 
 void addGenCommand(CLI::App& app, int& exitCode) {
     auto* cmd =
-        app.add_subcommand("gen", "Generate a test signal: sine|noise|pink|impulse|sweep|clicks|silence");
+        app.add_subcommand("gen", "Generate a test signal: sine|noise|pink|impulse|sweep|clicks|silence|vowel|chords");
     auto type = std::make_shared<std::string>();
     auto out = std::make_shared<std::string>();
     auto format = std::make_shared<std::string>("f32");
@@ -101,6 +101,10 @@ void addGenCommand(CLI::App& app, int& exitCode) {
     cmd->add_option("--phase-deg", p->phaseDeg, "Sine start phase in degrees")->capture_default_str();
     cmd->add_option("--bpm", p->bpm, "Clicks per minute")->capture_default_str();
     cmd->add_option("--seed", p->seed, "Noise seed")->capture_default_str();
+    cmd->add_option("--vibrato-hz", p->vibratoHz, "Vowel vibrato rate")->capture_default_str();
+    cmd->add_option("--vibrato-cents", p->vibratoCents, "Vowel vibrato depth, peak")->capture_default_str();
+    cmd->add_option("--chords", p->chords, "Chord list such as Am,Dm,E,Am");
+    cmd->add_option("--seconds-per-chord", p->secondsPerChord, "Length of each chord")->capture_default_str();
     cmd->add_option("--format", *format, "f32 (default), s24 or s16");
     cmd->callback([&exitCode, type, out, format, p] {
         WavFormat wf;
@@ -111,6 +115,11 @@ void addGenCommand(CLI::App& app, int& exitCode) {
         }
         if (!parseWavFormat(*format, wf)) {
             std::fprintf(stderr, "error: --format must be f32, s24 or s16\n");
+            exitCode = 2;
+            return;
+        }
+        if (p->type == SignalType::Chords && !validChordList(p->chords)) {
+            std::fprintf(stderr, "error: --chords must be a list such as Am,Dm,E,Am\n");
             exitCode = 2;
             return;
         }

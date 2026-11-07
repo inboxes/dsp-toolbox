@@ -6,7 +6,7 @@
 
 namespace dsptb {
 
-enum class SignalType { Sine, Noise, Pink, Impulse, Sweep, Clicks, Silence };
+enum class SignalType { Sine, Noise, Pink, Impulse, Sweep, Clicks, Silence, Vowel, Chords };
 
 bool parseSignalType(const std::string& name, SignalType& out);
 const char* signalTypeName(SignalType type);
@@ -19,6 +19,10 @@ const char* signalTypeName(SignalType type);
 //   sweep     logarithmic sine sweep freq -> freqEnd over the whole length, peak = dbfs
 //   clicks    single-sample impulses of amplitude dbfs every 60/bpm seconds, starting at t = 0
 //   silence   zeros
+//   vowel     a sung "ah": a band-limited pulse train at freq through resonators at 700, 1220 and 2600 Hz, peak =
+//             dbfs, with optional vibrato
+//   chords    sine triads with the root doubled an octave below, each tone at dbfs, for secondsPerChord each.
+//             `chords` is a comma list such as "Am,F#m,C". The length comes from the list, not `seconds`.
 struct GenParams {
     SignalType type = SignalType::Sine;
     double freq = 1000.0;
@@ -30,7 +34,14 @@ struct GenParams {
     uint32_t sampleRate = 48000;
     uint32_t channels = 2;
     uint32_t seed = 1;
+    double vibratoHz = 0.0;
+    double vibratoCents = 0.0; // peak deviation
+    std::string chords;
+    double secondsPerChord = 1.0;
 };
+
+// True when `chords` is a non-empty comma list of roots (A to G, optional # or b) with an optional m.
+bool validChordList(const std::string& chords);
 
 PcmAudio generateSignal(const GenParams& params);
 
