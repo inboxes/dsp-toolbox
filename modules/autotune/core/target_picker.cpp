@@ -1,6 +1,8 @@
 #include "target_picker.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 
 namespace dsptb::autotune {
@@ -40,6 +42,23 @@ bool inKey(int midiNote, const Key& key) noexcept {
         return true;
     const int degree = ((midiNote - key.root) % 12 + 12) % 12;
     return key.scale == Scale::Major ? kMajor[degree] : kMinor[degree];
+}
+
+float correctionWeight(float midi, int target, const Key& key, float strengthPercent) noexcept {
+    const float d = midi - static_cast<float>(target);
+    const int step = d >= 0.0f ? 1 : -1;
+    int neighbour = target + step;
+    while (!inKey(neighbour, key) && std::abs(neighbour - target) < 12)
+        neighbour += step;
+    const float half = 0.5f * static_cast<float>(std::abs(neighbour - target));
+    const float ambiguity = std::fabs(d) / half; // 0 on the note, 1 at the halfway point
+    // Full Strength is the hard snap, ambiguous or not. Below it the weight starts to fall further in: from 70 % of the
+    // way to halfway at 50 %, from 40 % at 0 %.
+    const float s = std::clamp(strengthPercent / 100.0f, 0.0f, 1.0f);
+    const float fadeFrom = 0.4f + 0.6f * s;
+    if (fadeFrom >= 1.0f)
+        return 1.0f;
+    return std::clamp((1.0f - ambiguity) / (1.0f - fadeFrom), 0.0f, 1.0f);
 }
 
 void TargetPicker::reset() noexcept {

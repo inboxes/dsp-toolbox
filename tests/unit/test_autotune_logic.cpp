@@ -63,6 +63,21 @@ TEST_CASE("autotune: key timeline") {
     }
 }
 
+TEST_CASE("autotune: ambiguous pitches are corrected less") {
+    const Key chromatic{0, Scale::Chromatic};
+    const Key cMajor{0, Scale::Major};
+    CHECK(correctionWeight(69.1f, 69, chromatic, 50.0f) == doctest::Approx(1.0f)); // close to the note
+    CHECK(correctionWeight(69.5f, 69, chromatic, 50.0f) == doctest::Approx(0.0f)); // halfway to A#
+    CHECK(correctionWeight(69.42f, 69, chromatic, 50.0f) == doctest::Approx(0.533f).epsilon(0.01)); // 84 % of the way
+    CHECK(correctionWeight(68.55f, 69, chromatic, 50.0f) == doctest::Approx(0.333f).epsilon(0.01)); // below, towards G#
+    // C major: from A (69) up to B (71) is a whole tone, so halfway is a semitone away.
+    CHECK(correctionWeight(69.5f, 69, cMajor, 50.0f) == doctest::Approx(1.0f));
+    CHECK(correctionWeight(70.0f, 69, cMajor, 50.0f) == doctest::Approx(0.0f));
+    // Full Strength always corrects fully; lower Strength backs off sooner.
+    CHECK(correctionWeight(69.49f, 69, chromatic, 100.0f) == doctest::Approx(1.0f));
+    CHECK(correctionWeight(69.3f, 69, chromatic, 0.0f) < correctionWeight(69.3f, 69, chromatic, 50.0f));
+}
+
 TEST_CASE("autotune: target notes") {
     TargetPicker picker;
     const Key cMajor{0, Scale::Major};

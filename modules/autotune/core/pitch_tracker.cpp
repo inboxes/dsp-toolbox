@@ -52,6 +52,7 @@ TrackedPitch PitchTracker::update(float hz, bool detectorVoiced, float hopRmsDb,
     }
     if (detectorVoiced && hz > 0.0f)
         hz = foldIntoRange(hz, config);
+    bool bridged = false;
     const bool usable = detectorVoiced && hz >= config.minHz && hz <= config.maxHz;
     if (!usable) {
         pending_ = 0.0f;
@@ -62,6 +63,7 @@ TrackedPitch PitchTracker::update(float hz, bool detectorVoiced, float hopRmsDb,
             reset();
             return {};
         }
+        bridged = true;
     } else if (previous_ <= 0.0f) {
         if (pending_ <= 0.0f || centsBetween(pending_, hz) > kOnsetAgreeCents) {
             pending_ = hz;
@@ -85,6 +87,7 @@ TrackedPitch PitchTracker::update(float hz, bool detectorVoiced, float hopRmsDb,
     out.voiced = true;
     out.f0Hz = hz;
     out.midi = 69.0f + 12.0f * std::log2(out.f0Hz / config.refA4);
+    out.bridged = bridged;
     return out;
 }
 

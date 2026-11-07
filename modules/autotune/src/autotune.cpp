@@ -228,6 +228,15 @@ private:
                     break;
                 }
             }
+        // The note is ending when the shortest frame able to measure it has stopped hearing it: the longer ones
+        // still hold the note for half their length.
+        noteEnding_ = false;
+        const float note = tracked_.voiced ? tracked_.f0Hz : 0.0f;
+        for (size_t k = kDetectors - 1; note > 0.0f && k > 0; --k)
+            if (fresh_[k] && note >= 1.25f * minHz_[k]) {
+                noteEnding_ = !estimates_[k].voiced;
+                break;
+            }
         for (size_t k = 0; k < kDetectors; ++k)
             fresh_[k] = false;
         return chosen;
@@ -249,8 +258,15 @@ private:
         const Key key = effectiveKey(b.paramInt(kKeySource) == kManual, std::clamp(b.paramInt(kKey), 0, 11),
                                      static_cast<Scale>(std::clamp(b.paramInt(kScale), 0, 2)), detectedKey());
         const int target = picker_.pick(tracked_.midi, tracked_.voiced, key, b.param(kNoteHold));
-        const float error = tracked_.voiced ? (static_cast<float>(target) - tracked_.midi) * 100.0f : 0.0f;
-        const float cents = smoother_.update(tracked_.voiced, error, b.param(kStrength));
+        const float strength = b.param(kStrength);
+        float cents;
+        if (tracked_.voiced && (tracked_.bridged || noteEnding_)) {
+            cents = smoother_.release();
+        } else {
+            const float weight = tracked_.voiced ? correctionWeight(tracked_.midi, target, key, strength) : 0.0f;
+            const float error = tracked_.voiced ? (static_cast<float>(target) - tracked_.midi) * 100.0f * weight : 0.0f;
+            cents = smoother_.update(tracked_.voiced, error, strength);
+        }
 
         PitchFrame frame;
         frame.clock = clock;
@@ -464,6 +480,7 @@ private:
     float minHz_[kDetectors] = {};
     dsp::PitchResult estimates_[kDetectors] = {};
     bool fresh_[kDetectors] = {};
+    bool noteEnding_ = false;
     std::unique_ptr<dsp::PsolaShifter> shifter_;
     std::vector<float> mono_, out_;
 

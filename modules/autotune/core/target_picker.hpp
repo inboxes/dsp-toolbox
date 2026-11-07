@@ -27,6 +27,11 @@ Key effectiveKey(bool manual, int keyParam, Scale scaleParam, const DetectedKey&
 // True when a note, as a MIDI number, belongs to the key.
 bool inKey(int midiNote, const Key& key) noexcept;
 
+// How much of the correction to apply, 0 to 1. Near the target note the answer is clear and the weight is 1. Towards
+// the halfway point to the next note in the key the singer may mean either, or be bending on purpose, so the weight
+// falls to 0 there. Higher Strength keeps full weight further out, and full Strength always corrects fully.
+float correctionWeight(float midi, int target, const Key& key, float strengthPercent) noexcept;
+
 class TargetPicker {
 public:
     static constexpr int kNoTarget = -1;

@@ -11,6 +11,7 @@ constexpr float kLimitCents = 300.0f;
 constexpr float kUnvoicedTauMs = 20.0f;
 constexpr float kMaxTauMs = 200.0f;
 constexpr float kFullAmountAt = 0.6f; // full correction from this Strength up
+constexpr float kReleaseTauMs = 5.0f;
 
 } // namespace
 
@@ -26,6 +27,13 @@ void CorrectionSmoother::reset() noexcept {
 
 float CorrectionSmoother::ratio() const noexcept {
     return std::pow(2.0f, smoothed_ / 1200.0f);
+}
+
+float CorrectionSmoother::release() noexcept {
+    smoothed_ *= std::exp(-hopMs_ / kReleaseTauMs);
+    if (std::fabs(smoothed_) < 0.5f)
+        smoothed_ = 0.0f; // exactly no shift: the shifter then stops splicing altogether
+    return smoothed_;
 }
 
 float CorrectionSmoother::update(bool voiced, float errorCents, float strengthPercent) noexcept {

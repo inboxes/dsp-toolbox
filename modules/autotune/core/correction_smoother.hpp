@@ -11,6 +11,9 @@ public:
 
     // Runs once per hop. Returns the correction to apply now, in cents.
     float update(bool voiced, float errorCents, float strengthPercent) noexcept;
+    // The note is ending: let go within a few milliseconds, so the shifter goes back to passing the voice
+    // through instead of re-spacing a breath.
+    float release() noexcept;
     float cents() const noexcept { return smoothed_; }
     float ratio() const noexcept;
 

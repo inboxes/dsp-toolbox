@@ -17,6 +17,7 @@ struct TrackedPitch {
     bool voiced = false;
     float f0Hz = 0.0f;
     float midi = 0.0f; // fractional note number, relative to refA4
+    bool bridged = false; // the detector lost the note this hop; f0Hz is the last one it had
 };
 
 class PitchTracker {
