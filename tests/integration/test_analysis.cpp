@@ -365,6 +365,33 @@ TEST_CASE("offline run: finishes, can be cancelled, and survives its instance be
         CHECK(fromFile == dump("org.dsptb.fileanalysis", original));
         std::filesystem::remove(path);
     }
+    SUBCASE("from a file: cancel leaves no result") {
+        const AudioBuffer original = sine(440.0, -6.0, 120.0, 44100);
+        PcmAudio pcm;
+        pcm.channels = 2;
+        pcm.sampleRate = original.sampleRate;
+        for (size_t i = 0; i < original.frames(); ++i) {
+            pcm.samples.push_back(original.ch[0][i]);
+            pcm.samples.push_back(original.ch[1][i]);
+        }
+        const auto path = std::filesystem::temp_directory_path() / "dsptb_offline_run_cancel.wav";
+        REQUIRE(writeWav(path, pcm, WavFormat::F32, err));
+        auto inst = ModuleInstance::create(1, *pkg, *desc, &host, err);
+        REQUIRE(inst);
+        auto run = OfflineRun::startFromFile(pool, inst, path);
+        run->cancel();
+        const auto start = std::chrono::steady_clock::now();
+        while (!run->done())
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        CHECK(ms <= 100.0);
+        CHECK(run->cancelled());
+        CHECK(run->error().empty());
+        std::string out;
+        REQUIRE(inst->dumpFrames(out));
+        CHECK_FALSE(json::parse(out).contains("seconds"));
+        std::filesystem::remove(path);
+    }
     SUBCASE("from a file: a missing file is an error, with no result") {
         auto inst = ModuleInstance::create(1, *pkg, *desc, &host, err);
         REQUIRE(inst);
