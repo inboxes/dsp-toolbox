@@ -21,7 +21,7 @@ namespace dsptb::dsp {
 //
 // The libebur128 state is created with
 // EBUR128_MODE_M | S | I | LRA | TRUE_PEAK | SAMPLE_PEAK | HISTOGRAM.
-// HISTOGRAM is required (spec §4.3): without it libebur128 keeps a growing
+// HISTOGRAM is required: without it libebur128 keeps a growing
 // list of 400 ms blocks and allocates inside add_frames, so a live meter
 // would grow without bound. Histogram mode uses constant memory.
 //
@@ -75,7 +75,7 @@ public:
     // Restart the measurement (integrated, LRA and both peak maxima).
     // libebur128 1.2.6 has no in-place reset, so this destroys and
     // re-creates its state: reset() ALLOCATES, may throw std::bad_alloc
-    // and is NOT real-time safe (spec §4.3 sanctions exactly this). Call
+    // and is NOT real-time safe. Call
     // it from the UI thread only, never from process() contexts.
     void reset();
 
@@ -84,14 +84,14 @@ private:
     unsigned channels_;
     std::size_t maxBlock_;
     // ebur128_state*, held as void* so this public header does not include
-    // <ebur128.h> (the dependency stays PRIVATE to the library, spec §3).
+    // <ebur128.h> (the dependency stays PRIVATE to the library).
     // Mutable because the libebur128 getters take a non-const state.
     mutable void* state_ = nullptr;
     // Preallocated interleaved scratch, maxBlock_ * channels_ floats.
     std::vector<float> scratch_;
 };
 
-// Per-channel peak and RMS meter for bar displays (spec §4.3).
+// Per-channel peak and RMS meter for bar displays.
 //
 // Peak ballistics: the displayed peak snaps up instantly to any larger
 // sample, holds for peakHoldS seconds after the last sample that reached
@@ -104,7 +104,7 @@ private:
 // RMS: a moving average of x^2 over the last rmsWindowMs, held in a
 // per-channel ring buffer with a double running sum. The sum is recomputed
 // exactly from the ring every 2^16 samples per channel, which bounds the
-// running-sum drift (spec §4.3). Before the window has filled, the average
+// running-sum drift. Before the window has filled, the average
 // covers the samples seen so far.
 //
 // Levels are in dBFS (20*log10 for peak amplitude, 10*log10 for mean
@@ -139,7 +139,7 @@ public:
 
     // Change the RMS window. Reallocates the ring buffers and restarts
     // the RMS history from silence, so this is NOT real-time safe (hence
-    // no noexcept, per spec §4.3); peaks and clip flags are kept. Throws
+    // no noexcept); peaks and clip flags are kept. Throws
     // std::invalid_argument for a non-positive window.
     void setRmsWindowMs(double rmsWindowMs);
     // Change the peak hold time in seconds (negative values clamp to 0).
@@ -147,7 +147,7 @@ public:
 
 private:
     // Recompute one channel's sum exactly from the first `valid` entries
-    // of its ring (spec: every 2^16 samples) to stop double-accumulator
+    // of its ring (every 2^16 samples) to stop double-accumulator
     // drift. Returns the fresh sum; the caller owns the running-sum state.
     double recomputeSum(unsigned ch, std::size_t valid) const noexcept;
     // Advance one channel's peak hold/fall by one processed block.

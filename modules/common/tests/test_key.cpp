@@ -1,4 +1,4 @@
-// KeyDetector tests plus the root an
+// KeyDetector tests. The "progression" test signal: each chord is root, third, fifth and the root an
 // octave lower, each at amplitude 0.1, built with sine() from
 // tests/support/signals.hpp. Major keys use I-IV-V-I, minor keys use
 // i-iv-V-i (major V), each played twice; roots range from C3 to B3.
@@ -8,6 +8,7 @@
 #include <dsptb/dsp_common/key.hpp>
 
 #include "support/alloc_counter.hpp"
+#include "support/music.hpp"
 #include "support/signals.hpp"
 
 #include <algorithm>
@@ -32,40 +33,9 @@ namespace {
 constexpr double kFs = 48000.0;
 constexpr int kC3 = 48; // MIDI note number of C3; pitch class = midi % 12, C = 0
 
-double midiHz(int midi) noexcept {
-    return 440.0 * std::pow(2.0, (static_cast<double>(midi) - 69.0) / 12.0);
-}
-
-// One chord of the issue's "progression" signal: root, third (major or
-// minor), fifth, and the root an octave lower, each a sine at amplitude
-// 0.1, lasting `seconds`. Appended to `out`.
-void appendChord(std::vector<float>& out, double fs, int rootMidi, bool majorChord, double seconds) {
-    const std::size_t count = static_cast<std::size_t>(std::llround(seconds * fs));
-    const double fRoot = midiHz(rootMidi);
-    const double fThird = midiHz(rootMidi + (majorChord ? 4 : 3));
-    const double fFifth = midiHz(rootMidi + 7);
-    const double fLow = midiHz(rootMidi - 12);
-    for (std::size_t n = 0; n < count; ++n) {
-        const double value = static_cast<double>(sig::sine(n, fs, fRoot, 0.1, 0.0)) +
-                             static_cast<double>(sig::sine(n, fs, fThird, 0.1, 0.0)) +
-                             static_cast<double>(sig::sine(n, fs, fFifth, 0.1, 0.0)) +
-                             static_cast<double>(sig::sine(n, fs, fLow, 0.1, 0.0));
-        out.push_back(static_cast<float>(value));
-    }
-}
-
-// The full progression for one key: I-IV-V-I (major) or i-iv-V-i with a
-// major V (minor), each chord 1 s, the whole sequence played twice (8 s).
-std::vector<float> progression(double fs, int rootMidi, bool minorKey) {
-    std::vector<float> out;
-    for (int rep = 0; rep < 2; ++rep) {
-        appendChord(out, fs, rootMidi, !minorKey, 1.0);     // I or i
-        appendChord(out, fs, rootMidi + 5, !minorKey, 1.0); // IV or iv
-        appendChord(out, fs, rootMidi + 7, true, 1.0);      // V (always major)
-        appendChord(out, fs, rootMidi, !minorKey, 1.0);     // I or i
-    }
-    return out;
-}
+using dsptb::test::music::appendChord;
+using dsptb::test::music::midiHz;
+using dsptb::test::music::progression;
 
 KeyResult detect(double fs, const std::vector<float>& signal, const KeyConfig& config = {}) {
     KeyDetector det(fs, config);
@@ -245,7 +215,7 @@ TEST_CASE("key: one sustained A-major triad for 5 s gives root A, mode major") {
 }
 
 TEST_CASE("key: at 96 kHz the Eb3 peak of the C-minor chord is estimated within 2 Hz") {
-    // Maintainer ruling on issue #30: with fftSize scaled x2 at 96 kHz
+    // with fftSize scaled x2 at 96 kHz
     // (16384, hop 8192), C3 and Eb3 sit ~4.2 bins apart instead of
     // ~2.1, so the 3-point log-parabola estimate of Eb3 in the C-minor
     // tonic chord must land within 2 Hz of 155.56 Hz in every frame.
@@ -316,7 +286,7 @@ TEST_CASE("key: sample rates 44.1, 48 and 96 kHz give the same answers") {
 
 TEST_CASE("key: full 24x3 matrix — every progression exact and confident at 44.1, 48 and 96 kHz") {
     // The maintainer asked for the full matrix as committed CHECKs
-    // (issue #30): the per-rate case above samples only a few keys, and
+    //: the per-rate case above samples only a few keys, and
     // the 72-run matrix was originally verified as a one-off probe.
     // This case pins every coordinate — including C minor at 96 kHz,
     // the failure the rate scaling fixes — against regression.
@@ -418,7 +388,7 @@ TEST_CASE("key: micro-benchmark — push 3 minutes of 48 kHz mono (report only)"
     det.push(signal.data(), signal.size());
     const auto stop = std::chrono::steady_clock::now();
     const double seconds = std::chrono::duration<double>(stop - start).count();
-    std::printf("[bench] KeyDetector push 3 min of 48 kHz mono: %.3f s (spec budget: <= 1 s)\n", seconds);
+    std::printf("[bench] KeyDetector push 3 min of 48 kHz mono: %.3f s (budget: <= 1 s)\n", seconds);
     CHECK(det.result().valid);
 }
 
@@ -442,4 +412,62 @@ TEST_CASE("key: micro-benchmark — push 3 minutes of 96 kHz mono (report only)"
     const double seconds = std::chrono::duration<double>(stop - start).count();
     std::printf("[bench] KeyDetector push 3 min of 96 kHz mono: %.3f s (report only)\n", seconds);
     CHECK(det.result().valid);
+}
+
+// ---- estimated tuning ----
+
+namespace {
+
+struct TunedScore {
+    int failures = 0;
+    double worstOffsetError = 0.0;
+};
+
+TunedScore scoreAllKeys(double a4, const KeyConfig& config) {
+    TunedScore score;
+    for (int root = 0; root < 12; ++root) {
+        for (const bool minor : {false, true}) {
+            const KeyResult r = detect(kFs, progression(kFs, kC3 + root, minor, a4), config);
+            const bool right = r.valid && r.confident && r.root == root &&
+                               r.mode == (minor ? KeyMode::Minor : KeyMode::Major);
+            if (!right)
+                ++score.failures;
+            const double truth = 1200.0 * std::log2(a4 / 440.0);
+            score.worstOffsetError =
+                std::max(score.worstOffsetError, std::abs(static_cast<double>(r.tuningOffsetCents) - truth));
+        }
+    }
+    return score;
+}
+
+} // namespace
+
+TEST_CASE("KeyDetector finds all 24 keys when the recording isn't at A = 440") {
+    for (const double a4 : {452.0, 428.0}) {
+        const TunedScore score = scoreAllKeys(a4, KeyConfig{});
+        CAPTURE(a4);
+        CHECK(score.failures == 0);
+        CHECK(score.worstOffsetError <= 2.0);
+    }
+}
+
+TEST_CASE("A fixed tuning of 440 fails on an off-tune recording, so the test above proves the estimator") {
+    KeyConfig fixed;
+    fixed.tuning = Tuning{440.0};
+    CHECK(scoreAllKeys(452.0, fixed).failures > 0);
+
+    const KeyResult r = detect(kFs, progression(kFs, kC3, false, 452.0), fixed);
+    CHECK_FALSE(r.tuningEstimated);
+    CHECK(r.tuningOffsetCents == 0.0f);
+}
+
+TEST_CASE("A fixed tuning that matches the recording finds the key") {
+    KeyConfig fixed;
+    fixed.tuning = Tuning{452.0};
+    const KeyResult r = detect(kFs, progression(kFs, kC3 + 5, true, 452.0), fixed);
+    CHECK(r.confident);
+    CHECK(r.root == 5);
+    CHECK(r.mode == KeyMode::Minor);
+    CHECK_FALSE(r.tuningEstimated);
+    CHECK(r.tuningOffsetCents == doctest::Approx(Tuning{452.0}.offsetCents()).epsilon(1e-4));
 }

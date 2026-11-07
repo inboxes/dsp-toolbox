@@ -213,8 +213,7 @@ TEST_CASE("spectral_features: 1 kHz sine centroid, rolloff, flatness and ZCR") {
 }
 
 TEST_CASE("spectral_features: lcgNoise flatness > 0.5 (corrected threshold)") {
-    // The issue's original "> 0.8" was a spec bug (maintainer ruling on
-    // issue #14): under section 4.9's power=2 definition, white-noise
+    // A threshold of 0.8 would be wrong: under the power=2 definition, white-noise
     // flatness concentrates at exp(-gamma) ~= 0.5615. The corrected
     // threshold is 0.5; observed range across seeds/amplitudes is
     // 0.52-0.60.

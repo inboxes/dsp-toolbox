@@ -26,7 +26,7 @@ SpectralFluxOnset::SpectralFluxOnset(double sampleRate, const OnsetConfig& confi
     minIntervalFrames_ = config.minIntervalMs / 1000.0 * sampleRate / static_cast<double>(config.hop);
 
     window_.assign(config.fftSize, 0.0f);
-    hannWindow(window_.data(), config.fftSize); // periodic Hann, as for the STFT (spec §4.2)
+    hannWindow(window_.data(), config.fftSize); // periodic Hann, as for the STFT
     frame_.assign(config.fftSize, 0.0f);
     windowed_.assign(config.fftSize, 0.0f);
     magnitudes_.assign(fft_.bins(), 0.0f);
@@ -51,7 +51,7 @@ void SpectralFluxOnset::reset() noexcept {
 double SpectralFluxOnset::historyMedian() noexcept {
     if (histSize_ == 0)
         return 0.0;
-    // Fixed-size scratch, insertion sort (spec §4.7: the median uses a
+    // Fixed-size scratch, insertion sort (the median uses a
     // fixed-size buffer with an insertion sort). M <= 63, so this is a
     // bounded, allocation-free handful of operations per frame.
     std::array<double, kMaxMedianFrames> sorted{};
@@ -108,7 +108,7 @@ bool SpectralFluxOnset::processFrame(float& noveltyOut, OnsetEvent& eventOut) no
             (!hasLastOnset_ ||
              static_cast<double>(candidate - lastOnsetFrame_) >= minIntervalFrames_)) {
             eventOut.frameIndex = candidate;
-            // Per the maintainer ruling on PR #26 (2026-11-05), timeSeconds
+            // timeSeconds
             // is the frame CENTRE, not the frame start: a click is only
             // detected once it is well inside the frame, so the start trails
             // it by close to a whole window — in samples fixed, in time

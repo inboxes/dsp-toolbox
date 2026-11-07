@@ -24,7 +24,7 @@ inline float sine(std::size_t n, double fs, double f, double amp, double phaseDe
 
 // lcgNoise(seed, amp): s <- (1664525*s + 1013904223) mod 2^32, then
 // x = amp * (2*s/2^32 - 1). The state is updated before each sample.
-// (Numerical Recipes LCG constants, as fixed by the spec.)
+// (Numerical Recipes LCG constants.)
 class LcgNoise {
 public:
     LcgNoise(std::uint32_t seed, double amp) noexcept : state_(seed), amp_(amp) {}
@@ -72,7 +72,7 @@ inline float saw(std::size_t n, double fs, double f, double amp) noexcept {
 
 // goldenSignal(fs): 1 s of
 //   0.5*sin(2*pi*440*n/fs) + 0.25*sin(2*pi*1250*n/fs) + lcgNoise(seed=1, amp=0.05)
-// This is the input for all librosa goldens (spec §3).
+// This is the input for all librosa goldens.
 inline std::vector<float> goldenSignal(double fs) {
     const std::size_t count = static_cast<std::size_t>(fs);
     std::vector<float> out;

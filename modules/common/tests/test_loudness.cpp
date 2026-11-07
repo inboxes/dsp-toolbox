@@ -1,6 +1,6 @@
 // Tests for LoudnessMeter and LevelMeter.
 // All signals are generated in-test with the shared formulas in
-// support/signals.hpp, as the issue requires.
+// support/signals.hpp.
 
 #include <doctest/doctest.h>
 
@@ -207,7 +207,7 @@ TEST_CASE("loudness: chunk size does not change the results") {
                        meter.truePeakDbtp(0), meter.samplePeakDbfs(0)};
     };
     const Results reference = run(total, 4096); // one single call
-    // Chunk sizes 1..10000 (spec) plus a tiny maxBlock to exercise the
+    // Chunk sizes 1..10000 plus a tiny maxBlock to exercise the
     // internal chunking loop with a large single call.
     for (const auto& [chunk, maxBlock] :
          {std::pair{std::size_t{1}, std::size_t{4096}}, std::pair{std::size_t{13}, std::size_t{4096}},
@@ -450,7 +450,7 @@ TEST_CASE("level: invalid configuration throws") {
 }
 
 // ---------------------------------------------------------------------------
-// Micro-benchmark (spec §6, report only: numbers are printed, not asserted,
+// Micro-benchmark (report only: numbers are printed, not asserted,
 // because CI runner timing is not a correctness signal)
 // ---------------------------------------------------------------------------
 
@@ -514,7 +514,7 @@ TEST_CASE("loudness: micro-benchmark, both true-peak modes (report only)") {
     LevelMeter level(kFs, 2);
     const double levelUs = benchMinUsPerBlock([&] { level.process(planar, kBlockFrames); });
 
-    std::printf("[bench] LoudnessMeter budget (spec S6): <= 5 us per 256-frame stereo block without "
+    std::printf("[bench] LoudnessMeter budget: <= 5 us per 256-frame stereo block without "
                 "true-peak, <= 25 us with true-peak\n");
     std::printf("[bench] libebur128 raw, no true-peak : %.3f us/block\n", withoutTp);
     std::printf("[bench] libebur128 raw, true-peak    : %.3f us/block\n", withTp);

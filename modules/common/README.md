@@ -4,7 +4,7 @@ Two small, portable C++20 libraries with the maths the first-party modules use. 
 
 | Library | CMake target | What it holds |
 |---|---|---|
-| `dsp_common/` | `dsptb::dsp_common` | FFT and STFT, loudness and level metering, colormaps, frequency mapping, pitch, onset, mel and MFCC, spectral features, key detection, pitch shifting |
+| `dsp_common/` | `dsptb::dsp_common` | FFT and STFT, loudness and level metering, colormaps, frequency mapping, pitch, onset, mel and MFCC, spectral features, key detection, pitch shifting, tuning and semitone pitch spectra |
 | `spatial_motion/` | `dsptb::spatial_motion` | Spherical coordinates, orbits and keyframe paths |
 
 ## Build and test

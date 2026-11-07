@@ -65,8 +65,8 @@ RunResult runChunked(SpectralFluxOnset& det, const std::vector<float>& signal, s
 }
 
 // clickTrain(bpm, amp) for `seconds` seconds, built sample by sample from
-// the spec §3 helper. The sample rate is a parameter so the same criterion
-// can be exercised at 44.1 kHz (the frame-centre ruling on PR #26).
+// the helper. The sample rate is a parameter so the same criterion
+// can be exercised at 44.1 kHz.
 std::vector<float> clickSignal(double bpm, double seconds, double amp, double fs = kFs) {
     const std::size_t count = static_cast<std::size_t>(seconds * fs);
     std::vector<float> out(count);
@@ -75,7 +75,7 @@ std::vector<float> clickSignal(double bpm, double seconds, double amp, double fs
     return out;
 }
 
-// Ground-truth click positions: n = round(k * 60/bpm * fs), as in §3.
+// Ground-truth click positions: n = round(k * 60/bpm * fs).
 std::vector<std::size_t> clickTimes(double bpm, double seconds, double fs = kFs) {
     std::vector<std::size_t> times;
     const double period = 60.0 / bpm * fs;
@@ -156,7 +156,7 @@ TEST_CASE("onset: invalid configurations are rejected") {
     bad.medianFrames = 0;
     CHECK_THROWS_AS(SpectralFluxOnset(kFs, bad), std::invalid_argument);
     bad = good;
-    bad.medianFrames = 64; // spec §4.7: M <= 63
+    bad.medianFrames = 64; // M <= 63
     CHECK_THROWS_AS(SpectralFluxOnset(kFs, bad), std::invalid_argument);
     bad = good;
     bad.compression = 0.0f;
@@ -196,7 +196,7 @@ TEST_CASE("onset: clickTrain(120 bpm), 30 s, >= 95% detected within +/-20 ms, <=
 }
 
 TEST_CASE("onset: timeSeconds reports the frame centre exactly") {
-    // Ruling on PR #26 (2026-11-05): OnsetEvent::timeSeconds is
+    // OnsetEvent::timeSeconds is
     // (frameIndex*hop + fftSize/2)/fs — the frame centre, not the frame
     // start. Asserted exactly (same expression as the implementation) on
     // every event of a click train.
@@ -333,7 +333,7 @@ TEST_CASE("onset: setSensitivity with an extreme lambda suppresses the clicks") 
     // values the threshold is ~50x the noise median. The single event that
     // remains is the frame-0 stream-start transient — the causal median is
     // still empty there, so theta_0 = delta whatever lambda is (the same
-    // reason the spec's sine criterion tolerates onsets in the first
+    // reason the sine criterion tolerates onsets in the first
     // 100 ms).
     CHECK(r.events.size() <= 1u);
     if (!r.events.empty())

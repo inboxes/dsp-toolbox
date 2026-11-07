@@ -332,7 +332,7 @@ TEST_CASE("mel: micro-benchmark (report only)") {
         const auto stop = std::chrono::steady_clock::now();
         best = std::min(best, std::chrono::duration<double, std::micro>(stop - start).count() / kBatchIterations);
     }
-    std::printf("[bench] Mfcc budget (spec S6): <= 40 us per frame (2048 FFT, 40 mels)\n");
+    std::printf("[bench] Mfcc budget: <= 40 us per frame (2048 FFT, 40 mels)\n");
     std::printf("[bench] Mfcc::compute: %.3f us/frame\n", best);
     CHECK(best > 0.0);
     CHECK(best < 2000.0); // loose sanity bound only; the budget is report-only

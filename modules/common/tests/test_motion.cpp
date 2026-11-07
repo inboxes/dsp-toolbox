@@ -32,7 +32,7 @@ using dsptb::spatial::fromSpherical;
 using dsptb::spatial::orbitPosition;
 using dsptb::spatial::toSpherical;
 
-// Real-time entry points must be noexcept (spec §5); pin it at compile time.
+// Real-time entry points must be noexcept; pin it at compile time.
 static_assert(noexcept(fromSpherical(std::declval<const Spherical&>())));
 static_assert(noexcept(toSpherical(std::declval<const Vec3&>())));
 static_assert(noexcept(orbitPosition(std::declval<const OrbitParams&>(), 0.0)));
@@ -471,7 +471,7 @@ TEST_CASE("motion: count 0 is the origin, count 1 is that keyframe") {
 }
 
 TEST_CASE("motion: a non-finite clock is treated as t = 0") {
-    // Maintainer nit on PR #28: std::fmod(inf, duration) is NaN, and the
+    // std::fmod(inf, duration) is NaN, and the
     // negative/NaN check in mapTime does not catch +inf — without the
     // isfinite guard the NaN would leak into positionAt on Loop/PingPong.
     const Keyframe keys[] = {

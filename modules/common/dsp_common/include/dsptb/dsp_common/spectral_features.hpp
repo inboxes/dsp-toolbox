@@ -1,7 +1,6 @@
 #pragma once
 
-// SpectralFeatureExtractor: per-frame spectral and temporal features
-//.
+// SpectralFeatureExtractor: per-frame spectral and temporal features.
 //
 // The definitions match librosa (feature.spectral_centroid,
 // spectral_bandwidth, spectral_rolloff, spectral_flatness and
@@ -30,7 +29,7 @@ struct SpectralFeatures {
 
 // Streaming spectral-feature extractor over a mono signal. Definitions use
 // the magnitude S_k and power P_k = S_k^2 of the Hann-windowed frame, with
-// bin frequency f_k = k*sampleRate/fftSize (spec §4.9):
+// bin frequency f_k = k*sampleRate/fftSize:
 //   centroid = sum f_k S_k / sum S_k
 //   spread   = sqrt(sum (f_k - centroid)^2 S_k / sum S_k)
 //   rolloff  = smallest f_k with sum_{j<=k} S_j >= rolloffPct * sum S_j

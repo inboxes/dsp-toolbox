@@ -1,5 +1,5 @@
 // Smoke test that the two third-party dependencies the scaffold wires up
-// (spec §2) are really linkable and usable in both build modes: PFFFT's
+// are really linkable and usable in both build modes: PFFFT's
 // classic float API and libebur128's C API.
 
 #include <doctest/doctest.h>

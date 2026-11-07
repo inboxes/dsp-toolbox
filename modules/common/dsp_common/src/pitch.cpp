@@ -33,7 +33,7 @@ YinPitch::YinPitch(double sampleRate, const PitchConfig& config)
         throw std::invalid_argument("YinPitch: minHz must be positive and finite");
     if (!std::isfinite(config_.maxHz) || config_.maxHz <= 0.0)
         throw std::invalid_argument("YinPitch: maxHz must be positive and finite");
-    // Spec §4.6: the search runs to ceil(fs/minHz), which must fit the
+    // the search runs to ceil(fs/minHz), which must fit the
     // integration window W = frameSize/2.
     if (sampleRate_ / config_.minHz > static_cast<double>(w))
         throw std::invalid_argument("YinPitch: sampleRate/minHz exceeds frameSize/2");
@@ -103,7 +103,7 @@ PitchResult YinPitch::analyzeFrame(const float* frame) noexcept {
         cumSq_[i + 1] = cumSq_[i] + v * v;
     }
 
-    // Difference function (spec §4.6) and its cumulative mean normalised
+    // Difference function and its cumulative mean normalised
     // form (YIN step 2). d(tau) >= 0 mathematically; the clamp only eats
     // FFT round-off. A zero running mean means a silent (or constant)
     // frame so far: the CMND is defined as 1 there, i.e. no periodicity.

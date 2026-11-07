@@ -15,13 +15,13 @@
 namespace dsptb::dsp {
 namespace {
 
-// Krumhansl & Kessler (1982) key profiles, index 0 = tonic (spec §4.10).
+// Krumhansl & Kessler (1982) key profiles, index 0 = tonic.
 constexpr std::array<double, 12> kMajorProfile = {6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
                                                   2.52, 5.19, 2.39, 3.66, 2.29, 2.88};
 constexpr std::array<double, 12> kMinorProfile = {6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
                                                   2.54, 4.75, 3.98, 2.69, 3.34, 3.17};
 
-// Peak floor (maintainer ruling on issue #30): a spectral peak whose
+// Peak floor: a spectral peak whose
 // magnitude is below this fraction of the frame's largest peak
 // (1% = -40 dB) contributes nothing, so Hann sidelobes and noise-floor
 // ripple do not add chroma.
@@ -124,7 +124,7 @@ std::size_t extractFramePeaks(const float* power, std::size_t bins, double binHz
 
 StftConfig KeyDetector::effectiveStftConfig(double sampleRate, const KeyConfig& config) {
     // Validate the configured values as given, before scaling
-    // (maintainer ruling on issue #30).
+    //.
     if (config.fftSize < 32 || config.fftSize > 65536 ||
         (config.fftSize & (config.fftSize - 1)) != 0)
         throw std::invalid_argument("KeyDetector: fftSize must be a power of two in [32, 65536]");
@@ -158,53 +158,74 @@ StftConfig KeyDetector::effectiveStftConfig(double sampleRate, const KeyConfig& 
     return StftConfig{fftSize, hop, Window::Hann};
 }
 
+namespace {
+
+PitchSpectrumConfig spectrumConfig(const KeyConfig& config) {
+    // A bad range is rejected in the KeyDetector constructor body, with its own message. PitchSpectrum is
+    // built first, so it gets valid values until then.
+    PitchSpectrumConfig out;
+    if (config.minHz > 0.0 && config.minHz < config.maxHz) {
+        out.minHz = config.minHz;
+        out.maxHz = config.maxHz;
+    }
+    out.binsPerSemitone = 10;
+    return out;
+}
+
+} // namespace
+
 KeyDetector::KeyDetector(double sampleRate, const KeyConfig& config)
     : sampleRate_(sampleRate), config_(config),
-      effective_(effectiveStftConfig(sampleRate, config)), stft_(effective_) {
+      effective_(effectiveStftConfig(sampleRate, config)), stft_(effective_),
+      spectrum_(sampleRate > 0.0 ? sampleRate : 48000.0, effective_.fftSize,
+                spectrumConfig(config), config.tuning.value_or(Tuning{})),
+      estimator_(sampleRate, effective_.hop) {
     if (!(sampleRate > 0.0))
         throw std::invalid_argument("KeyDetector: sample rate must be positive");
     if (!(config.minHz > 0.0) || !(config.minHz < config.maxHz))
         throw std::invalid_argument("KeyDetector: need 0 < minHz < maxHz");
-    magnitudes_.assign(stft_.bins(), 0.0);
-    peaks_.assign(stft_.bins() / 2 + 1, detail::FramePeak{});
 }
 
 void KeyDetector::reset() noexcept {
     stft_.reset();
-    chroma_.fill(0.0);
+    estimator_.reset();
+    accumulated_.fill(0.0);
     frames_ = 0;
 }
 
 void KeyDetector::push(const float* mono, std::size_t n) noexcept {
-    // pushPower hands over the raw power spectrum |X_k|^2 of each
-    // Hann-windowed frame. The chroma accumulates the frame's spectral
-    // peaks in double precision (peak-aware chroma: maintainer ruling
-    // on issue #30, option A — see detail::extractFramePeaks), each
-    // folded in by the pitch-class formula applied to its interpolated
-    // frequency:
-    //   pc = (round(12 * log2(f / 440)) + 9) mod 12   (so C = 0, A = 9)
-    // All scratch is constructor-sized — no allocation.
-    const double binHz = sampleRate_ / static_cast<double>(effective_.fftSize);
-    stft_.pushPower(
-        mono, n,
-        [this, binHz](const float* power, std::size_t bins, std::uint64_t /*frameIndex*/) noexcept {
-            ++frames_;
-            const std::size_t count = detail::extractFramePeaks(
-                power, bins, binHz, config_.minHz, config_.maxHz, magnitudes_.data(), peaks_.data(),
-                peaks_.size());
-            for (std::size_t i = 0; i < count; ++i) {
-                const long steps = std::lround(12.0 * std::log2(peaks_[i].frequencyHz / 440.0));
-                long pc = (steps + 9) % 12;
-                if (pc < 0)
-                    pc += 12;
-                chroma_[static_cast<std::size_t>(pc)] += peaks_[i].magnitude;
-            }
-        });
+    // pushPower hands over the raw power spectrum |X_k|^2 of each Hann-windowed frame. All scratch is
+    // constructor-sized, so nothing allocates.
+    stft_.pushPower(mono, n, [this](const float* power, std::size_t, std::uint64_t) noexcept {
+        ++frames_;
+        spectrum_.analyze(power);
+        spectrum_.foldToPitchClasses(frameClasses_.data());
+        for (std::size_t i = 0; i < accumulated_.size(); ++i)
+            accumulated_[i] += static_cast<double>(frameClasses_[i]);
+        estimator_.addPeaks(spectrum_.peaks(), spectrum_.peakCount());
+        estimator_.addFrames(1);
+    });
+}
+
+std::array<double, 12> KeyDetector::foldedChroma(const TuningEstimate& estimate) const noexcept {
+    // Class j collects bins 10j-5 ... 10j+4 after the shift, so it's centred on its tuned note. A positive
+    // offset means the recording sits above the analysis grid, so its notes are found r bins higher.
+    const int shift = estimate.valid ? static_cast<int>(std::lround(estimate.offsetCents / 10.0f)) : 0;
+    std::array<double, 12> out{};
+    for (int j = 0; j < 12; ++j) {
+        for (int t = 0; t < 10; ++t) {
+            const int index = ((10 * j - 5 + t + shift) % 120 + 120) % 120;
+            out[static_cast<std::size_t>(j)] += accumulated_[static_cast<std::size_t>(index)];
+        }
+    }
+    return out;
 }
 
 void KeyDetector::chroma(float out[12]) const noexcept {
+    const TuningEstimate estimate = config_.tuning ? TuningEstimate{} : estimator_.result();
+    const std::array<double, 12> folded = foldedChroma(estimate);
     double total = 0.0;
-    for (const double value : chroma_)
+    for (const double value : folded)
         total += value;
     if (total <= 0.0) {
         for (std::size_t pc = 0; pc < 12; ++pc)
@@ -212,15 +233,19 @@ void KeyDetector::chroma(float out[12]) const noexcept {
         return;
     }
     for (std::size_t pc = 0; pc < 12; ++pc)
-        out[pc] = static_cast<float>(chroma_[pc] / total);
+        out[pc] = static_cast<float>(folded[pc] / total);
 }
 
 KeyResult KeyDetector::result() const noexcept {
     KeyResult out;
+    const TuningEstimate estimate = config_.tuning ? TuningEstimate{} : estimator_.result();
+    const std::array<double, 12> folded = foldedChroma(estimate);
+    out.tuningEstimated = !config_.tuning && estimate.valid;
+    out.tuningOffsetCents = config_.tuning ? static_cast<float>(config_.tuning->offsetCents()) : estimate.offsetCents;
     double total = 0.0;
-    for (const double value : chroma_)
+    for (const double value : folded)
         total += value;
-    // Spec §4.10: valid = false when fewer than 2 frames were analysed
+    // valid = false when fewer than 2 frames were analysed
     // or the total chroma energy is below 1e-6.
     out.valid = frames_ >= 2 && total >= 1e-6;
     if (!out.valid)
@@ -236,8 +261,8 @@ KeyResult KeyDetector::result() const noexcept {
     KeyMode bestMode = KeyMode::Major;
     double bestR = -2.0;
     for (int root = 0; root < 12; ++root) {
-        rMajor[root] = pearson(chroma_, kMajorProfile, root);
-        rMinor[root] = pearson(chroma_, kMinorProfile, root);
+        rMajor[root] = pearson(folded, kMajorProfile, root);
+        rMinor[root] = pearson(folded, kMinorProfile, root);
         if (rMajor[root] > bestR) {
             bestR = rMajor[root];
             bestRoot = root;
@@ -250,7 +275,7 @@ KeyResult KeyDetector::result() const noexcept {
         }
     }
 
-    // Margin (spec §4.10): relative keys share their notes, so confusing
+    // Margin: relative keys share their notes, so confusing
     // them does not matter for tuning — the margin is the winner's r
     // minus the best other r EXCLUDING the winner's relative key
     // (major root r -> minor (r + 9) mod 12; minor root r -> major

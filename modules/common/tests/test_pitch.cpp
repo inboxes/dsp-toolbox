@@ -119,7 +119,7 @@ TEST_CASE("pitch: sine 220 Hz passes at 44.1 kHz and 96 kHz") {
 }
 
 TEST_CASE("pitch: sine 220 Hz at -60 dBFS stays within +/-0.5 Hz") {
-    // Maintainer review nit on PR #25: the CMND is a ratio of energies,
+    // the CMND is a ratio of energies,
     // so it should be scale-invariant in practice — but the correlation
     // goes through a float FFT while the energy terms are double, so
     // d(τ) near a true period is a difference of two large similar
@@ -238,7 +238,7 @@ TEST_CASE("pitch: random chunk sizes give the same results as one push") {
     sig::LcgNoise chunkNoise(99u, 1.0);
     std::size_t pos = 0;
     while (pos < signal.size()) {
-        // Pseudo-random chunk sizes in [1, 997] from the spec's LCG.
+        // Pseudo-random chunk sizes in [1, 997] from the LCG.
         const double unit = (static_cast<double>(chunkNoise.next()) + 1.0) * 0.5;
         std::size_t chunk = 1 + static_cast<std::size_t>(unit * 996.0);
         chunk = std::min(chunk, signal.size() - pos);
@@ -303,7 +303,7 @@ TEST_CASE("pitch: micro-benchmark 2048/256 (report only, budget 80 us per hop)")
     const auto stop = std::chrono::steady_clock::now();
     const double totalUs = std::chrono::duration<double, std::micro>(stop - start).count();
     const double usPerHop = totalUs / static_cast<double>(kCalls);
-    std::printf("[bench] YinPitch 2048/256: %.2f us per hop over %d calls (spec budget: 80 us)\n", usPerHop,
+    std::printf("[bench] YinPitch 2048/256: %.2f us per hop over %d calls (budget: 80 us)\n", usPerHop,
                 kCalls);
     CHECK(hzSum > 0.0);          // the benchmark actually ran
     CHECK(usPerHop > 0.0);

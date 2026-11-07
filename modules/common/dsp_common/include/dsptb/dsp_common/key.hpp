@@ -6,13 +6,17 @@
 // References: C. Krumhansl, "Cognitive Foundations of Musical Pitch"
 // (Oxford University Press, 1990); S. Pauws, "Musical Key Extraction
 // from Audio", ISMIR 2004. The key profiles are Krumhansl & Kessler
-// (1982), as tabulated in the spec.
+// (1982).
 
+#include <dsptb/dsp_common/pitch_spectrum.hpp>
 #include <dsptb/dsp_common/stft.hpp>
+#include <dsptb/dsp_common/tuning.hpp>
+#include <dsptb/dsp_common/tuning_estimator.hpp>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <vector>
 
 namespace dsptb::dsp {
@@ -28,6 +32,9 @@ struct KeyConfig {
     std::size_t hop = 4096;     // samples between frame starts at 48 kHz; must be >= 1
     double minHz = 55.0;        // lowest peak frequency folded into the chroma
     double maxHz = 1760.0;      // highest peak frequency folded into the chroma
+    // Empty = estimate the recording's tuning (a recording tuned away from 440 flips every pitch-class
+    // decision near the halfway point). Set it to analyse with a fixed tuning.
+    std::optional<Tuning> tuning;
 };
 
 struct KeyResult {
@@ -37,6 +44,8 @@ struct KeyResult {
     float correlation = 0.0f; // Pearson r of the winning profile, -1..1
     float margin = 0.0f;      // winner r minus the best other r, ignoring the winner's relative key
     bool confident = false;   // valid && correlation >= 0.6 && margin >= 0.05
+    float tuningOffsetCents = 0.0f; // the tuning used, relative to A4 = 440
+    bool tuningEstimated = false;   // true when the offset came from the recording, not the config
 };
 
 namespace detail {
@@ -48,9 +57,9 @@ struct FramePeak {
     double magnitude = 0.0;   // interpolated peak magnitude, on the S_k = sqrt(P_k) scale
 };
 
-// Internal: the per-frame peak extraction KeyDetector accumulates. Not
-// part of the public API — declared here so the tests can exercise the
-// exact production code path; no stability guarantee.
+// Internal: peak extraction on one frame, kept for its tests. KeyDetector
+// now gets its peaks from PitchSpectrum. Not part of the public API; no
+// stability guarantee.
 //
 // Finds the peaks of one frame from its power spectrum `power` (the
 // `bins` values of |X_k|^2 delivered by StftAnalyzer::pushPower): a bin
@@ -71,27 +80,20 @@ std::size_t extractFramePeaks(const float* power, std::size_t bins, double binHz
 } // namespace detail
 
 // Streaming key estimator. Audio is fed with `push` in chunks of any
-// size; each completed STFT frame's spectral peaks are folded into a
-// 12-bin chroma (pitch-class) accumulator, and `result()` correlates the
-// accumulated chroma against the 24 Krumhansl–Kessler key profiles
+// size; each completed STFT frame goes through PitchSpectrum at 10-cent
+// resolution and is folded into a 120-bin pitch-class accumulator. With an
+// estimated tuning, `result()` rotates the accumulator by the tuning offset
+// in 10-cent steps, so it stays cheap and independent of chunk sizes with
+// no second pass over the audio; the leftover error of at most 5 cents is
+// absorbed by the cos^2 weighting. It then folds to 12 classes and
+// correlates the chroma against the 24 Krumhansl–Kessler key profiles
 // (12 roots x major/minor) and reports the best match. `result()` may be
 // called at any time (the consumer calls it every 2 s while audio is
 // pushed, and once at the end of a file).
 //
-// Framing reuses StftAnalyzer::pushPower with a Hann window (spec §4.2);
-// the profiles, margin rule and validity rule are spec §4.10 verbatim.
-// The chroma accumulation is peak-aware (maintainer ruling on issue
-// #30, option A, superseding §4.10's per-bin fold — the spec text will
-// be updated to match): in each frame, a magnitude bin contributes only
-// when it is a strict local maximum of S_k = sqrt(P_k); its frequency
-// and magnitude are refined by parabolic interpolation on the
-// log-magnitude, the [minHz, maxHz] test and the pitch-class formula
-// are applied to the interpolated frequency, and peaks below 1% of the
-// frame's largest peak (-40 dB) are ignored so Hann sidelobes and
-// noise-floor ripple do not add chroma.
+// Framing reuses StftAnalyzer::pushPower with a Hann window;
 //
-// The configured fftSize and hop are values at 48 kHz (maintainer
-// ruling on issue #30): the constructor multiplies both by
+// The configured fftSize and hop are values at 48 kHz: the constructor multiplies both by
 // s = 2^round(log2(sampleRate / 48000)) — x1 at 44.1 and 48 kHz, x2 at
 // 96 kHz, x4 at 192 kHz — so the frequency resolution in Hz per bin is
 // the same at every sample rate. (At a fixed size in samples the bin
@@ -150,10 +152,13 @@ private:
     KeyConfig config_;
     StftConfig effective_; // config_ with fftSize/hop scaled for sampleRate_
     StftAnalyzer stft_;
-    std::vector<double> magnitudes_;          // per-bin scratch, sized by the constructor
-    std::vector<detail::FramePeak> peaks_;    // per-frame peak scratch, sized by the constructor
-    std::array<double, 12> chroma_{};
-    std::uint64_t frames_ = 0; // STFT frames analysed since construction/reset
+    PitchSpectrum spectrum_;
+    TuningEstimator estimator_;
+    std::array<float, 120> frameClasses_{};  // one frame, 10 bins per semitone
+    std::array<double, 120> accumulated_{};  // all frames, at the analysis tuning
+    std::uint64_t frames_ = 0;               // STFT frames analysed since construction/reset
+
+    std::array<double, 12> foldedChroma(const TuningEstimate& estimate) const noexcept;
 };
 
 } // namespace dsptb::dsp

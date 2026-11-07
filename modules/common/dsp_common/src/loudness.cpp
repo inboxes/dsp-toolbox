@@ -22,7 +22,7 @@ constexpr double kMinusInfinity = -std::numeric_limits<double>::infinity();
 
 // libebur128 reports "no energy" as -HUGE_VAL, which is -infinity on IEEE
 // platforms but a finite huge negative where HUGE_VAL is DBL_MAX. Map every
-// such sentinel (and any NaN, defensively) to -infinity (spec §4.3).
+// such sentinel (and any NaN, defensively) to -infinity.
 double mapLoudness(double value) noexcept {
     if (std::isnan(value) || value <= -1e30)
         return kMinusInfinity;
@@ -37,7 +37,7 @@ double linearPeakToDb(double peak) noexcept {
 }
 
 ebur128_state* createState(double sampleRate, unsigned channels) {
-    // The full mode set from spec §4.3. HISTOGRAM gives constant memory:
+    // The full mode set. HISTOGRAM gives constant memory:
     // without it add_frames appends to a growing block list and allocates.
     constexpr int kMode = EBUR128_MODE_M | EBUR128_MODE_S | EBUR128_MODE_I | EBUR128_MODE_LRA |
                           EBUR128_MODE_TRUE_PEAK | EBUR128_MODE_SAMPLE_PEAK | EBUR128_MODE_HISTOGRAM;
@@ -188,7 +188,7 @@ void LoudnessMeter::reset() {
 
 namespace {
 
-// Samples between exact running-sum recomputes (spec §4.3: every 2^16).
+// Samples between exact running-sum recomputes.
 constexpr std::size_t kRecomputeInterval = std::size_t{1} << 16;
 
 std::size_t windowSamplesFor(double sampleRate, double rmsWindowMs) {

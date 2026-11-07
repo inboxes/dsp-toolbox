@@ -7,6 +7,7 @@
 // Thread contract (MODULE_SDK): analyze() runs on the analysis thread, draw()/saveState() on the UI thread.
 // They only share the column ring (SPSC), the spectrum profile (relaxed atomics) and a few atomics.
 
+#include <dsptb/dsp_common/tuning.hpp>
 #include <dsptb/dsp_common/colormap.hpp>
 #include <dsptb/dsp_common/freq_map.hpp>
 #include <dsptb/dsp_common/stft.hpp>
@@ -53,6 +54,7 @@ enum Param : uint32_t {
     kColormap,
     kShowSpectrum,
     kFreeze,
+    kNoteGrid,
 };
 
 constexpr const char* kFftLabels[] = {"512", "1024", "2048", "4096", "8192"};
@@ -128,7 +130,8 @@ public:
         dsptb::Float("max_hz", "Max frequency", "Hz", 10.f, 24000.f, 20000.f).log(),
         dsptb::Float("history_s", "History", "s", 2.f, 60.f, 10.f),
         dsptb::Enum("colormap", "Colormap", kMapLabels, 0),
-        dsptb::Bool("show_spectrum", "Spectrum line", true), dsptb::Bool("freeze", "Freeze", false));
+        dsptb::Bool("show_spectrum", "Spectrum line", true), dsptb::Bool("freeze", "Freeze", false),
+        dsptb::Bool("note_grid", "Note grid (Log axis)", false));
 
     Spectrogram() : ring_(kRingColumns) {
         for (auto& v : latest_)
@@ -239,6 +242,8 @@ public:
         c.rect({px0, py0}, {px0 + pw, py0 + ph}, dsptb::rgba(90, 94, 104), 1.0f);
 
         drawFreqAxis(c, s, px0, py0, ph);
+        if (host().valid() && host().getParam(kNoteGrid) >= 0.5f)
+            drawNoteGrid(c, s, px0, py0, pw, ph);
         drawTimeAxis(c, s, px0, py0 + ph, pw);
         drawColorBar(c, s, px0 + pw + 10.0f * s, py0, ph);
         drawHover(c, s, px0, py0, pw, ph);
@@ -485,6 +490,29 @@ private:
         }
     }
 
+    // Log rows are already evenly spaced in semitones, so the grid needs no new frequency scale. A faint line
+    // on every semitone, and a label on each C.
+    void drawNoteGrid(dsptb::Canvas& c, float s, float x0, float y0, float pw, float ph) {
+        if (!tex_ || axisUi_.scale != static_cast<int>(dc::FreqScale::Log))
+            return;
+        const auto map = uiMap();
+        if (!map)
+            return;
+        const int first = static_cast<int>(std::ceil(dc::hzToMidi(axisUi_.minHz)));
+        const int last = static_cast<int>(std::floor(dc::hzToMidi(axisUi_.maxHz)));
+        for (int midi = first; midi <= last; ++midi) {
+            const double hz = dc::midiToHz(static_cast<double>(midi));
+            const float y = y0 + ph * (1.0f - static_cast<float>(map->rowToFraction(hz)));
+            const bool isC = dc::nearestNote(hz).pitchClass == 0;
+            c.line({x0, y}, {x0 + pw, y}, dsptb::rgba(255, 255, 255, isC ? 70 : 22), 1.0f);
+            if (isC) {
+                char label[8];
+                std::snprintf(label, sizeof(label), "C%d", dc::nearestNote(hz).octave);
+                c.text({x0 + 4.0f * s, y - 15.0f * s}, dsptb::rgba(255, 255, 255, 170), label);
+            }
+        }
+    }
+
     void drawTimeAxis(dsptb::Canvas& c, float s, float x0, float y, float pw) const {
         if (!tex_)
             return;
@@ -564,7 +592,7 @@ private:
         c.line({m.pos.x, y0}, {m.pos.x, y0 + ph}, dsptb::rgba(255, 255, 255, 110), 1.0f);
         c.line({x0, m.pos.y}, {x0 + pw, m.pos.y}, dsptb::rgba(255, 255, 255, 110), 1.0f);
         char note[24];
-        dc::noteName(hz, note, sizeof(note));
+        dc::noteName(hz, dc::Tuning{}, note, sizeof(note));
         char text[96];
         std::snprintf(text, sizeof(text), "%.1f Hz  %s   -%.2f s   %.0f dB", hz, note,
                       static_cast<double>(ageS), static_cast<double>(level));

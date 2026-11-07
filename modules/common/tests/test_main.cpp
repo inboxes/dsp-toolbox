@@ -1,6 +1,6 @@
 // Test executable entry point: the doctest main, plus the global operator
 // new / delete overrides that feed the allocation counter in
-// support/alloc_counter.hpp (spec §3: the overrides live inside the test
+// support/alloc_counter.hpp (the overrides live inside the test
 // executable only).
 
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN

@@ -11,7 +11,7 @@ namespace dsptb::dsp {
 namespace {
 
 // librosa's amin for spectral_flatness: the power spectrum is clamped to
-// at least this before the geometric/arithmetic means (spec §4.9).
+// at least this before the geometric/arithmetic means.
 constexpr double kAmin = 1e-10;
 
 } // namespace
@@ -75,7 +75,7 @@ SpectralFeatures SpectralFeatureExtractor::computeFeatures(const float* frame,
 
     // Flatness needs no silence guard: on silence every clamped power is
     // amin, so the geometric and arithmetic means are both amin and the
-    // ratio is exactly 1, as §4.9 requires.
+    // ratio is exactly 1, as required.
     const double meanClamped = sumClampedPower / static_cast<double>(binCount);
     out.flatness = static_cast<float>(
         std::exp(sumLogPower / static_cast<double>(binCount)) / meanClamped);
@@ -105,7 +105,7 @@ SpectralFeatures SpectralFeatureExtractor::computeFeatures(const float* frame,
         }
         out.rolloffHz = static_cast<float>(static_cast<double>(rolloffBin) * binHz);
     } else {
-        // Silence (§4.9): centroid, spread and rolloff are 0. (The
+        // Silence: centroid, spread and rolloff are 0. (The
         // rolloff search alone would also land on bin 0, since 0 >=
         // pct * 0, but the centroid/spread divisions need the guard.)
         out.centroidHz = 0.0f;
@@ -121,14 +121,14 @@ SpectralFeatures SpectralFeatureExtractor::computeFeatures(const float* frame,
             sumSq += diff * diff;
         }
         // K is the number of bins, following the (1/K) * sum_k normaliser
-        // of §4.8's novelty (§4.9 writes "/ K" without defining it).
+        // of the novelty.
         out.flux = static_cast<float>(std::sqrt(sumSq) / static_cast<double>(binCount));
     } else {
         out.flux = 0.0f;
     }
 
     // Temporal features of the unwindowed frame. sign(0) counts as
-    // positive (§4.9), so the sign test is simply x >= 0; sample 0 has no
+    // positive, so the sign test is simply x >= 0; sample 0 has no
     // predecessor and never counts, matching librosa's indicator array.
     double sumSqTime = 0.0;
     std::size_t crossings = 0;

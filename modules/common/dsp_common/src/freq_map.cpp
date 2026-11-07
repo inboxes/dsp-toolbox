@@ -1,5 +1,7 @@
 #include <dsptb/dsp_common/freq_map.hpp>
 
+#include <dsptb/dsp_common/tuning.hpp>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -26,7 +28,7 @@ double melLogStep() noexcept {
 
 // --- Scale helpers ----------------------------------------------------------
 // A scale is a monotone map Hz -> axis coordinate and back. Row edges are
-// evenly spaced in axis coordinates (spec §4.5).
+// evenly spaced in axis coordinates.
 
 double hzToScale(FreqScale scale, double hz) noexcept {
     switch (scale) {
@@ -167,7 +169,7 @@ void BinToRowMap::apply(const float* binDb, float* rowDb) const noexcept {
             rowDb[row] = best;
         } else if (info.interpBin + 1 < bins_) {
             // Row narrower than a bin: interpolate the dB linearly
-            // between the two bins around the row centre (spec §4.5).
+            // between the two bins around the row centre.
             const double frac = info.interpFrac;
             const double lo = static_cast<double>(binDb[info.interpBin]);
             const double hi = static_cast<double>(binDb[info.interpBin + 1]);
@@ -196,34 +198,7 @@ double BinToRowMap::rowToFraction(double hz) const noexcept {
 }
 
 void noteName(double hz, char* out, std::size_t cap) noexcept {
-    if (out == nullptr || cap == 0)
-        return;
-    if (!(hz > 0.0) || !std::isfinite(hz)) {
-        // snprintf truncates safely and always NUL-terminates (cap > 0).
-        std::snprintf(out, cap, "%s", "--");
-        return;
-    }
-
-    // Semitones from A4 (MIDI 69 at 440 Hz), as a real number.
-    const double midiFloat = 69.0 + 12.0 * std::log2(hz / 440.0);
-    // Round half toward +inf (floor(x + 0.5)), not away from zero, so a
-    // value exactly between two notes/cents goes to the higher one and
-    // a cents tie such as +49.5c displays as +50c.
-    const double midiRounded = std::floor(midiFloat + 0.5);
-    const long long midi = static_cast<long long>(midiRounded);
-    const double centsFloat = 100.0 * (midiFloat - midiRounded);
-    const long long cents = static_cast<long long>(std::floor(centsFloat + 0.5));
-
-    static constexpr std::array<const char*, 12> kNoteNames = {
-        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
-    // Floor division: C++ '/' truncates toward zero, which would put
-    // negative MIDI notes in the wrong octave.
-    const long long noteIndex = ((midi % 12) + 12) % 12;
-    const long long octave = (midi - noteIndex) / 12 - 1;
-
-    // The sign is part of the number: "%+lld" prints +0 / -12 / +50.
-    std::snprintf(out, cap, "%s%lld %+lldc", kNoteNames[static_cast<std::size_t>(noteIndex)], octave,
-                  cents);
+    noteName(hz, Tuning{}, out, cap);
 }
 
 } // namespace dsptb::dsp

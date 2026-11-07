@@ -7,7 +7,7 @@
 // test never see it. An override calls noteAllocation() for every allocation;
 // the counter only advances while an AllocGuard is alive on this thread.
 //
-// Usage (spec §3):
+// Usage:
 //   AllocGuard g;
 //   ... code that must not allocate ...
 //   CHECK(g.count() == 0);

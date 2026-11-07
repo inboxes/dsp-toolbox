@@ -1,5 +1,6 @@
 #include <dsptb/dsp_common/stft.hpp>
 
+#include <algorithm>
 #include <dsptb/dsp/window.hpp>
 
 #include <cmath>
@@ -132,6 +133,14 @@ void mixToMono(const float* l, const float* r, std::size_t n, ChannelMix mix, fl
             out[i] = 0.5f * (l[i] - r[i]);
         break;
     }
+}
+
+std::size_t fftSizeForRate(double sampleRate, std::size_t sizeAt48k) noexcept {
+    int exponent = 0;
+    if (sampleRate > 0.0 && std::isfinite(sampleRate))
+        exponent = static_cast<int>(std::clamp(std::round(std::log2(sampleRate / 48000.0)), -20.0, 20.0));
+    const std::size_t scaled = exponent >= 0 ? sizeAt48k << exponent : sizeAt48k >> -exponent;
+    return std::max<std::size_t>(scaled, 256);
 }
 
 } // namespace dsptb::dsp

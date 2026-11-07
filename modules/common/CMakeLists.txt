@@ -5,7 +5,7 @@ project(dsptb_common VERSION 0.1.0 LANGUAGES C CXX)
 # ---------------------------------------------------------------------------
 # modules/common — shared DSP libraries
 #
-# This project works in two modes (spec §3):
+# This project works in two modes:
 #   * Subdirectory of the main build: the top-level CMakeLists.txt adds us
 #     with add_subdirectory(modules/common). Dependencies come from vcpkg
 #     (find_package / find_path / find_library) and warnings come from the
@@ -25,7 +25,7 @@ endif()
 
 include(FetchContent)
 
-# Pinned dependency versions for the standalone build (spec §2). Keep the
+# Pinned dependency versions for the standalone build. Keep the
 # README table in sync when these change.
 set(DSPTB_DOCTEST_VERSION "v2.4.11")
 set(DSPTB_LIBEBUR128_VERSION "v1.2.6")
@@ -40,7 +40,7 @@ else()
 endif()
 
 # Warnings for our own targets in standalone mode. In the main build the
-# dsptb_warnings target carries the equivalent flags (spec §1).
+# dsptb_warnings target carries the equivalent flags.
 function(dsptb_common_apply_warnings target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /WX /permissive- /utf-8)
@@ -161,7 +161,7 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------
-# Libraries (spec §3 layout: <lib>/include/dsptb/<lib>, <lib>/src)
+# Libraries
 # ---------------------------------------------------------------------------
 
 add_library(dsptb_dsp_common STATIC
@@ -176,6 +176,9 @@ add_library(dsptb_dsp_common STATIC
     dsp_common/src/pitch.cpp
     dsp_common/src/psola.cpp
     dsp_common/src/key.cpp
+    dsp_common/src/tuning.cpp
+    dsp_common/src/pitch_spectrum.cpp
+    dsp_common/src/tuning_estimator.cpp
     dsp_common/src/version.cpp)
 add_library(dsptb::dsp_common ALIAS dsptb_dsp_common)
 target_include_directories(dsptb_dsp_common

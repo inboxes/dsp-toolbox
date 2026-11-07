@@ -1,7 +1,6 @@
 #pragma once
 
-// SpectralFluxOnset: causal streaming onset detection
-//.
+// SpectralFluxOnset: causal streaming onset detection.
 //
 // The detector runs a Hann-windowed magnitude STFT, compresses each bin with
 // C_k = log(1 + gamma * |X_k|), and takes the novelty of a frame as the mean
@@ -42,7 +41,7 @@ struct OnsetEvent {
 // Streaming onset detector over a mono signal. Samples are fed with `push`
 // in chunks of any size; framing depends only on the sample stream, never on
 // the chunk sizes. Frame f covers the pushed samples [f*hop, f*hop+fftSize)
-// — no centring or padding, exactly as StftAnalyzer (spec §4.2) — so the
+// — no centring or padding, exactly as StftAnalyzer — so the
 // first frame completes only after fftSize samples have been pushed.
 //
 // Detection is strictly causal except for the one frame of look-ahead the
@@ -54,7 +53,7 @@ struct OnsetEvent {
 // Stream start: the median history is empty for frame 0, so its threshold
 // is δ alone (the median of no values is 0). A loud first frame can
 // therefore fire a frame-0 onset at any λ. This is kept deliberately —
-// requiring history before any frame could fire would change the §4.7
+// requiring history before any frame could fire would change the
 // formula — and it is why the acceptance tests tolerate an onset in the
 // first 100 ms of a stream.
 //
@@ -78,7 +77,7 @@ public:
     // one-frame look-ahead), so within one push an onset callback always
     // follows the novelty callback of the frame that confirmed it. The
     // event's timeSeconds is the centre time of its frame, per the spec
-    // (ruling on PR #26: frame centre, not frame start).
+    // (frame centre, not frame start).
     template <class N, class O>
     void push(const float* mono, std::size_t n, N&& onNovelty, O&& onOnset) noexcept {
         std::size_t i = 0;
@@ -136,7 +135,7 @@ private:
     // Slides frame_ to the next frame start after a frame was analysed.
     void advanceFrame() noexcept;
 
-    static constexpr std::size_t kMaxMedianFrames = 63; // spec §4.7: M <= 63
+    static constexpr std::size_t kMaxMedianFrames = 63; // M <= 63
 
     OnsetConfig config_{};
     double sampleRate_ = 0.0;
