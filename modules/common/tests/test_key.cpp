@@ -8,6 +8,7 @@
 #include <dsptb/dsp_common/key.hpp>
 
 #include "support/alloc_counter.hpp"
+#include "support/music.hpp"
 #include "support/signals.hpp"
 
 #include <algorithm>
@@ -32,40 +33,9 @@ namespace {
 constexpr double kFs = 48000.0;
 constexpr int kC3 = 48; // MIDI note number of C3; pitch class = midi % 12, C = 0
 
-double midiHz(int midi) noexcept {
-    return 440.0 * std::pow(2.0, (static_cast<double>(midi) - 69.0) / 12.0);
-}
-
-// One chord of the issue's "progression" signal: root, third (major or
-// minor), fifth, and the root an octave lower, each a sine at amplitude
-// 0.1, lasting `seconds`. Appended to `out`.
-void appendChord(std::vector<float>& out, double fs, int rootMidi, bool majorChord, double seconds) {
-    const std::size_t count = static_cast<std::size_t>(std::llround(seconds * fs));
-    const double fRoot = midiHz(rootMidi);
-    const double fThird = midiHz(rootMidi + (majorChord ? 4 : 3));
-    const double fFifth = midiHz(rootMidi + 7);
-    const double fLow = midiHz(rootMidi - 12);
-    for (std::size_t n = 0; n < count; ++n) {
-        const double value = static_cast<double>(sig::sine(n, fs, fRoot, 0.1, 0.0)) +
-                             static_cast<double>(sig::sine(n, fs, fThird, 0.1, 0.0)) +
-                             static_cast<double>(sig::sine(n, fs, fFifth, 0.1, 0.0)) +
-                             static_cast<double>(sig::sine(n, fs, fLow, 0.1, 0.0));
-        out.push_back(static_cast<float>(value));
-    }
-}
-
-// The full progression for one key: I-IV-V-I (major) or i-iv-V-i with a
-// major V (minor), each chord 1 s, the whole sequence played twice (8 s).
-std::vector<float> progression(double fs, int rootMidi, bool minorKey) {
-    std::vector<float> out;
-    for (int rep = 0; rep < 2; ++rep) {
-        appendChord(out, fs, rootMidi, !minorKey, 1.0);     // I or i
-        appendChord(out, fs, rootMidi + 5, !minorKey, 1.0); // IV or iv
-        appendChord(out, fs, rootMidi + 7, true, 1.0);      // V (always major)
-        appendChord(out, fs, rootMidi, !minorKey, 1.0);     // I or i
-    }
-    return out;
-}
+using dsptb::test::music::appendChord;
+using dsptb::test::music::midiHz;
+using dsptb::test::music::progression;
 
 KeyResult detect(double fs, const std::vector<float>& signal, const KeyConfig& config = {}) {
     KeyDetector det(fs, config);

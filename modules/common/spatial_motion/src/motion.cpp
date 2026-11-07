@@ -45,7 +45,7 @@ double distanceD(const DVec3& a, const DVec3& b) noexcept {
 }
 
 // Negative travel / hold times act as zero-length phases (a travel time of
-// <= 0 is an instant jump, per spec §5).
+// <= 0 is an instant jump).
 double phaseSeconds(float seconds) noexcept {
     return seconds > 0.0f ? static_cast<double>(seconds) : 0.0;
 }
@@ -97,7 +97,7 @@ Vec3 evalTravel(const Vec3& p0, const Vec3& p1, const Vec3& p2, const Vec3& p3, 
     const DVec3 d2 = toD(p2);
     if (ease == Ease::Linear || smoothFallback)
         return toF(lerpD(d1, d2, u));
-    // Ease-in-out time warp (spec §5): u' = u^2 * (3 - 2u). Its slope is 0 at
+    // Ease-in-out time warp: u' = u^2 * (3 - 2u). Its slope is 0 at
     // both ends, so a Smooth segment arrives and departs with zero velocity.
     const double warped = u * u * (3.0 - 2.0 * u);
     return toF(catmullRom(toD(p0), d1, d2, toD(p3), warped));
@@ -105,7 +105,7 @@ Vec3 evalTravel(const Vec3& p0, const Vec3& p1, const Vec3& p2, const Vec3& p3, 
 
 // Travel segment arriving at keyframe `target` (>= 1). Neighbouring points
 // for the Smooth curve wrap around when the loop is closed and are duplicated
-// at the ends otherwise (spec §5).
+// at the ends otherwise.
 Vec3 evalSegment(const PathSpec& spec, std::size_t count, bool wrapped, std::size_t target,
                  double u) noexcept {
     const Keyframe& to = spec.keys[target];
@@ -165,7 +165,7 @@ Spherical toSpherical(const Vec3& position) noexcept {
     const double z = static_cast<double>(position.z);
     const double d = std::sqrt(x * x + y * y + z * z);
     if (d == 0.0)
-        return {0.0f, 0.0f, 0.0f}; // spec §5: distance 0 -> az = el = 0
+        return {0.0f, 0.0f, 0.0f}; // distance 0 -> az = el = 0
     double sinEl = y / d;
     if (sinEl > 1.0)
         sinEl = 1.0;
@@ -201,7 +201,7 @@ Vec3 orbitPosition(const OrbitParams& params, double tSeconds) noexcept {
         baseX = r * std::cos(angle);
         baseZ = -r * std::sin(angle) * std::cos(angle);
     }
-    // Tilt about the X axis (spec §5): y' = -z sin(tilt), z' = z cos(tilt)
+    // Tilt about the X axis: y' = -z sin(tilt), z' = z cos(tilt)
     // for a base point with y = 0; positive tilt raises the front.
     const double tilt = static_cast<double>(params.tiltDeg) * kDegToRad;
     const double y = -baseZ * std::sin(tilt);
@@ -223,7 +223,7 @@ void PathEvaluator::rebuild(const PathSpec& spec) noexcept {
         if (i + 1 < count)
             t += phaseSeconds(spec_.keys[i + 1].travelTimeS);
     }
-    // The closing segment exists only in Loop mode (spec §5, Modes): Once
+    // The closing segment exists only in Loop mode: Once
     // ends holding the last keyframe and PingPong reverses from it.
     closing_ = spec_.mode == PlayMode::Loop && spec_.closeLoop && count >= 2;
     duration_ = t + (closing_ ? phaseSeconds(spec_.keys[0].travelTimeS) : 0.0);

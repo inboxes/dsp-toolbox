@@ -24,6 +24,12 @@ struct StftConfig {
     Window window = Window::Hann;
 };
 
+// Scales an FFT size or hop given at 48 kHz so the window lasts the same time at any rate:
+// size * 2^round(log2(sampleRate / 48000)), at least 256. 44.1 and 48 kHz are x1, 88.2 and 96 kHz x2,
+// 192 kHz x4. Frequency resolution comes from the window's length in seconds, so every music analyser
+// sizes its FFT with this.
+std::size_t fftSizeForRate(double sampleRate, std::size_t sizeAt48k) noexcept;
+
 // Streaming STFT over a mono signal. Samples are fed with `push` (or
 // `pushPower`) in chunks of any size; the callback fires once per completed
 // hop with the spectrum of one frame. Frame f covers the pushed samples
