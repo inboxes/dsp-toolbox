@@ -14,6 +14,9 @@ namespace dsptb {
 
 using InstanceId = uint32_t;
 
+// The block size an offline module is prepared with. It reads the whole file itself, so this is only a hint.
+inline constexpr uint32_t kOfflineMaxBlock = 4096;
+
 // Parameter values of one instance: the UI writes atomics, the audio thread copies them
 // into a plain array at the start of each block and hands that to process(). Int, bool and enum values are
 // stored as floats and kept rounded.
@@ -111,6 +114,12 @@ public:
     // values are snapshotted on every call.
     bool callAnalyze(const float* l, const float* r, uint32_t frames, uint64_t firstFrameClock,
                      uint32_t droppedFrames, dsptb_tap tap) noexcept;
+    // ---- offline worker (or the CLI) ----
+    // Runs an offline module over the whole buffer. `result` is run_offline's return value (0 = ok). Returns
+    // false, and marks the instance faulted, when the module crashed. Both pointers must outlive the call.
+    bool callRunOffline(const float* const* channels, uint32_t numChannels, uint64_t frames, double sampleRate,
+                        std::atomic<float>* progress, const std::atomic<bool>* cancel, int& result) noexcept;
+
     // Optional frame dump for `analyze --dump-frames`; false when the module has none.
     bool dumpFrames(std::string& json) const;
 

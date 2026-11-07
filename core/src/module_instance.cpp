@@ -279,6 +279,38 @@ bool ModuleInstance::callAnalyze(const float* l, const float* r, uint32_t frames
     return guarded([&] { desc_->analyze(self_, &ctx); });
 }
 
+bool ModuleInstance::callRunOffline(const float* const* channels, uint32_t numChannels, uint64_t frames,
+                                    double sampleRate, std::atomic<float>* progress,
+                                    const std::atomic<bool>* cancel, int& result) noexcept {
+    struct Token {
+        std::atomic<float>* progress;
+        const std::atomic<bool>* cancel;
+    } token{progress, cancel};
+    params_.copyToRt(); // parameters are fixed for the whole run
+    dsptb_offline_ctx ctx{};
+    ctx.struct_size = sizeof(ctx);
+    ctx.channels = channels;
+    ctx.num_channels = numChannels;
+    ctx.num_frames = frames;
+    ctx.sample_rate = sampleRate;
+    ctx.params = params_.rtValues();
+    ctx.host_token = &token;
+    ctx.report_progress = [](void* t, float fraction) {
+        if (auto* p = static_cast<Token*>(t)->progress; p && fraction >= 0.0f)
+            p->store(fraction < 1.0f ? fraction : 1.0f, std::memory_order_relaxed);
+    };
+    ctx.is_cancelled = [](void* t) {
+        const auto* c = static_cast<Token*>(t)->cancel;
+        return c && c->load(std::memory_order_relaxed) ? 1 : 0;
+    };
+    result = 1;
+    if (!guarded([&] { result = desc_->run_offline(self_, &ctx); })) {
+        markFaulted(FaultReason::Exception);
+        return false;
+    }
+    return true;
+}
+
 bool ModuleInstance::dumpFrames(std::string& json) const {
     if (!pkg_->dumpFrames)
         return false;

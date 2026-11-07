@@ -105,6 +105,7 @@ bool parseManifest(const std::string& jsonText, ModuleManifest& out, std::string
         ManifestModule mm;
         mm.id = m.is_object() ? str(m, "id") : std::string();
         mm.kind = m.is_object() ? str(m, "kind") : std::string();
+        mm.name = m.is_object() ? str(m, "name") : std::string();
         if (!isValidModuleId(mm.id)) {
             error = "invalid module id in modules list";
             return false;

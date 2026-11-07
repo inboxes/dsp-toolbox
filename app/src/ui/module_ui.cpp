@@ -407,7 +407,7 @@ void drawModuleBrowserPanel(ShellContext& ctx) {
                 ImGui::TableNextRow();
                 ImGui::PushID(mm.id.c_str());
                 const bool addable =
-                    pkg.status == PackageStatus::Ok && (mm.kind == "processor" || mm.kind == "analyzer");
+                    pkg.status == PackageStatus::Ok;
                 ImGui::TableSetColumnIndex(0);
                 ImGui::BeginDisabled(!addable);
                 if (ImGui::SmallButton("Add"))
@@ -417,14 +417,13 @@ void drawModuleBrowserPanel(ShellContext& ctx) {
                                          ImGuiHoveredFlags_ForTooltip)) {
                     if (addable)
                         ImGui::SetTooltip("Add to session");
-                    else if (mm.kind == "offline")
-                        ImGui::SetTooltip("Offline modules arrive in a later version.");
                     else
                         ImGui::SetTooltip("This module cannot be used: %s", pkg.statusText.c_str());
                 }
                 ImGui::TableSetColumnIndex(1);
-                ImGui::TextUnformatted(pkg.manifest.modules.size() == 1 ? pkg.manifest.name.c_str()
-                                                                        : mm.id.c_str());
+                ImGui::TextUnformatted(!mm.name.empty()                  ? mm.name.c_str()
+                                       : pkg.manifest.modules.size() == 1 ? pkg.manifest.name.c_str()
+                                                                          : mm.id.c_str());
                 if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                     ImGui::SetTooltip("%s\n%s\n%s", mm.id.c_str(), pkg.manifest.description.c_str(),
                                       pkg.dllPathUtf8().c_str());
@@ -450,6 +449,68 @@ void drawModuleBrowserPanel(ShellContext& ctx) {
 // ----------------------------------------------------------------------------------------------------------
 // Chain panel
 // ----------------------------------------------------------------------------------------------------------
+
+bool startOfflineRun(ShellContext& ctx, InstanceId id) {
+    InstanceRecord* rec = ctx.model ? ctx.model->find(id) : nullptr;
+    if (!rec || !rec->isOffline() || rec->instance->faulted() || ctx.moduleUi.offlineRuns.count(id))
+        return false;
+    const auto file = ctx.audio ? ctx.audio->file() : nullptr;
+    if (!file)
+        return false;
+    if (!ctx.moduleUi.offlinePool)
+        ctx.moduleUi.offlinePool = std::make_unique<WorkerPool>(1);
+    ctx.moduleUi.offlineRuns[id] =
+        OfflineRun::start(*ctx.moduleUi.offlinePool, rec->instance, file->audio, file);
+    return true;
+}
+
+void stopOfflineRuns(ShellContext& ctx) {
+    for (auto& [id, run] : ctx.moduleUi.offlineRuns)
+        run->cancel();
+    ctx.moduleUi.offlineRuns.clear(); // waits for each
+    ctx.moduleUi.offlinePool.reset();
+}
+
+namespace {
+
+// Cancels runs whose instance has gone, and reports and drops the finished ones.
+void tickOfflineRuns(ShellContext& ctx) {
+    auto& runs = ctx.moduleUi.offlineRuns;
+    for (auto it = runs.begin(); it != runs.end();) {
+        const InstanceRecord* rec = ctx.model->find(it->first);
+        if (!rec)
+            it->second->cancel();
+        if (!it->second->done()) {
+            ++it;
+            continue;
+        }
+        if (rec && !it->second->succeeded() && !it->second->cancelled())
+            spdlog::error("{}: {}", rec->instance->moduleId(), it->second->error());
+        it = runs.erase(it);
+    }
+}
+
+// Run, or a progress bar and Cancel while it's running.
+void drawOfflineControls(ShellContext& ctx, const InstanceRecord& rec) {
+    const float s = dpiScale();
+    const auto it = ctx.moduleUi.offlineRuns.find(rec.id);
+    if (it != ctx.moduleUi.offlineRuns.end()) {
+        ImGui::ProgressBar(it->second->progress(), ImVec2(120.0f * s, 0.0f));
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel"))
+            it->second->cancel();
+        return;
+    }
+    const bool hasFile = ctx.audio && ctx.audio->file();
+    ImGui::BeginDisabled(!hasFile || rec.instance->faulted());
+    if (ImGui::SmallButton("Run"))
+        startOfflineRun(ctx, rec.id);
+    ImGui::EndDisabled();
+    if (!hasFile && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("Open an audio file first.");
+}
+
+} // namespace
 
 void drawChainPanel(ShellContext& ctx) {
     if (!beginPanel(ctx, kChain))
@@ -482,22 +543,28 @@ void drawChainPanel(ShellContext& ctx) {
         const bool analyzer = rec.isAnalyzer();
 
         bool en = rec.enabled && !rec.removing;
-        ImGui::BeginDisabled(rec.removing || faulted);
-        if (ImGui::Checkbox("##enabled", &en)) {
-            toggleId = rec.id;
-            toggleTo = en;
+        // A whole-file job only runs when asked, so there's nothing to enable.
+        if (!rec.isOffline()) {
+            ImGui::BeginDisabled(rec.removing || faulted);
+            if (ImGui::Checkbox("##enabled", &en)) {
+                toggleId = rec.id;
+                toggleTo = en;
+            }
+            ImGui::EndDisabled();
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+                ImGui::SetTooltip(faulted    ? "Faulted: bypassed"
+                                  : analyzer ? "Enable / pause"
+                                             : "Enable / bypass");
+            ImGui::SameLine();
         }
-        ImGui::EndDisabled();
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
-            ImGui::SetTooltip(faulted    ? "Faulted: bypassed"
-                              : analyzer ? "Enable / pause"
-                                         : "Enable / bypass");
-        ImGui::SameLine();
 
         char label[200];
         const char* suffix = faulted ? "  [FAULTED]" : (rec.removing ? "  [removing]" : "");
         const char* moduleName = rec.label.empty() ? "" : rec.instance->desc().name;
-        if (analyzer)
+        if (rec.isOffline())
+            std::snprintf(label, sizeof label, "%s%s%s%s%s", instanceName(rec).c_str(),
+                          rec.label.empty() ? "" : "  (", moduleName, rec.label.empty() ? "" : ")", suffix);
+        else if (analyzer)
             std::snprintf(label, sizeof label, "%s%s%s%s  [%s]%s", instanceName(rec).c_str(),
                           rec.label.empty() ? "" : "  (", moduleName, rec.label.empty() ? "" : ")",
                           rec.tap == DSPTB_TAP_PRE ? "PRE" : "POST", suffix);
@@ -517,7 +584,11 @@ void drawChainPanel(ShellContext& ctx) {
             ctx.moduleUi.focusRequest = rec.id;
         }
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
-            if (analyzer) {
+            if (rec.isOffline()) {
+                ImGui::SetTooltip("%s\nRuns over the whole file when you press Run; not part of the signal path\n"
+                                  "Double-click to rename, click to show its panel",
+                                  rec.instance->moduleId().c_str());
+            } else if (analyzer) {
                 ImGui::SetTooltip("%s\nAnalyzer: listens %s the processors; not part of the signal path\n"
                                   "Double-click to rename, click to show its panel",
                                   rec.instance->moduleId().c_str(),
@@ -538,7 +609,7 @@ void drawChainPanel(ShellContext& ctx) {
                 removeId = rec.id;
             ImGui::EndPopup();
         }
-        if (!analyzer) {
+        if (rec.isProcessor()) {
             if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                 ImGui::SetDragDropPayload(kChainPayload, &rec.id, sizeof(InstanceId));
                 ImGui::Text("%s", instanceName(rec).c_str());
@@ -560,14 +631,15 @@ void drawChainPanel(ShellContext& ctx) {
         ImGui::PopID();
     };
 
-    size_t procCount = 0, analyzerCount = 0;
+    tickOfflineRuns(ctx);
+    size_t procCount = 0, analyzerCount = 0, offlineCount = 0;
     for (const auto& rec : records)
-        (rec.isAnalyzer() ? analyzerCount : procCount) += 1;
+        (rec.isAnalyzer() ? analyzerCount : rec.isOffline() ? offlineCount : procCount) += 1;
     if (procCount == 0)
         ImGui::TextDisabled("No processors. Analyzers below listen to the source.");
     size_t procIndex = 0;
     for (const auto& rec : records)
-        if (!rec.isAnalyzer()) {
+        if (rec.isProcessor()) {
             row(rec, procIndex + 1, procIndex);
             ++procIndex;
         }
@@ -577,6 +649,17 @@ void drawChainPanel(ShellContext& ctx) {
         for (const auto& rec : records)
             if (rec.isAnalyzer())
                 row(rec, 0, 0);
+    }
+    if (offlineCount > 0) {
+        ImGui::Spacing();
+        ImGui::SeparatorText("Whole-file jobs");
+        for (const auto& rec : records)
+            if (rec.isOffline()) {
+                row(rec, 0, 0);
+                ImGui::PushID(static_cast<int>(rec.id));
+                drawOfflineControls(ctx, rec);
+                ImGui::PopID();
+            }
     }
     // Modules the session names that are not installed: greyed, no sound, data kept for the next
     // save.
@@ -658,12 +741,18 @@ void drawInstancePanels(ShellContext& ctx) {
             const bool faulted = m.faulted();
 
             bool en = rec->enabled;
-            ImGui::BeginDisabled(faulted);
-            if (ImGui::Checkbox("Enabled", &en))
-                ctx.model->setEnabled(id, en);
-            ImGui::EndDisabled();
+            if (rec->isOffline()) {
+                drawOfflineControls(ctx, *rec);
+            } else {
+                ImGui::BeginDisabled(faulted);
+                if (ImGui::Checkbox("Enabled", &en))
+                    ctx.model->setEnabled(id, en);
+                ImGui::EndDisabled();
+            }
             ImGui::SameLine();
-            if (rec->isAnalyzer()) {
+            if (rec->isOffline()) {
+                // Nothing to choose: it reads the whole file.
+            } else if (rec->isAnalyzer()) {
                 int tap = rec->tap == DSPTB_TAP_PRE ? 0 : 1;
                 ImGui::SetNextItemWidth(150.0f * s);
                 const char* taps[] = {"PRE (raw source)", "POST (after chain)"};
@@ -705,7 +794,7 @@ void drawInstancePanels(ShellContext& ctx) {
             if (!(m.desc().caps & DSPTB_CAP_HIDE_AUTO_PARAMS)) {
                 // An analyzer's picture is the point of its panel, so its parameters fold away (closed by
                 // default) instead of pushing the view off the bottom.
-                const bool fold = rec->isAnalyzer() || m.params().size() > 5;
+                const bool fold = !rec->isProcessor() || m.params().size() > 5;
                 const bool show = !fold || ImGui::CollapsingHeader("Parameters");
                 if (show)
                     for (uint32_t i = 0; i < m.params().size(); ++i) {

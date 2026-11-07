@@ -17,7 +17,7 @@ struct SessionInstanceDoc {
     std::string module;
     std::string moduleVersion;
     bool enabled = true;
-    std::string role;                     // "processor" or "analyzer" ("" = unknown)
+    std::string role;                     // "processor", "offline" or "analyzer" ("" = unknown)
     std::string tap;                      // analyzers: "pre" or "post"; "" = null
     std::string label;                    // user-chosen name; "" = the module's own
     std::map<std::string, double> params; // param id -> value, ordered so files are stable

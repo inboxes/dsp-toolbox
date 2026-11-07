@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "id": "org.dsptb.analysis",
+  "name": "Audio Analysis",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "analysis.dll",
+  "modules": [
+    {"id": "org.dsptb.pitch", "kind": "analyzer", "name": "Pitch"},
+    {"id": "org.dsptb.onset", "kind": "analyzer", "name": "Onset"},
+    {"id": "org.dsptb.mfcc", "kind": "analyzer", "name": "MFCC"},
+    {"id": "org.dsptb.spectralfeatures", "kind": "analyzer", "name": "Spectral Features"},
+    {"id": "org.dsptb.fileanalysis", "kind": "offline", "name": "File Analysis"}
+  ],
+  "author": "DSP Toolbox",
+  "license": "GPL-3.0-only",
+  "description": "Measurement tools: pitch, onsets, MFCC, spectral features and a whole-file report.",
+  "minHostVersion": "0.2.0",
+  "paramHelp": {
+    "threshold": "How sure the pitch tracker must be before it calls a frame voiced. Lower is stricter.",
+    "a4_hz": "The reference for note names and cents. Most music uses 440 Hz.",
+    "sensitivity": "Higher finds quieter onsets, and more false ones.",
+    "min_interval_ms": "Two onsets closer than this count as one.",
+    "skip_c0": "Coefficient 0 mostly follows the level, and its size would hide the others.",
+    "show_rolloff": "The frequency below which 85 % of the sound's magnitude lies."
+  }
+}

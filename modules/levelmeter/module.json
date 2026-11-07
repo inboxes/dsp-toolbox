@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "org.dsptb.levelmeter",
   "name": "Level / Loudness Meter",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "abi": 1,
   "dll": "levelmeter.dll",
   "modules": [

@@ -16,10 +16,11 @@ struct AnalyzeModuleOptions {
     dsptb_tap tap = DSPTB_TAP_POST;
 };
 
+// An offline module gets the whole buffer through run_offline instead. Otherwise:
 // Runs an analyzer module over a whole buffer on the calling thread, with the same calls the analysis thread
 // makes (`callAnalyze` in chunks, sample clock counting up), then asks the module for its frame dump. Backs
 // `dsptb-cli analyze --module` and the module acceptance tests. The module is prepared with offline = true.
-// Returns false with `error` when the module is missing, not an analyzer, faulted, or has no dump.
+// Returns false with `error` when the module is missing, a processor, faulted, or has no dump.
 bool analyzeWithModule(ModuleRegistry& registry, const AnalyzeModuleOptions& options,
                        const AudioBuffer& input, std::string& dumpJson, std::string& error);
 

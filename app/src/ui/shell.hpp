@@ -1,5 +1,9 @@
 #pragma once
 
+#include <dsptb/core/offline_run.hpp>
+#include <dsptb/core/worker_pool.hpp>
+
+#include <memory>
 #include <dsptb/core/audio_session.hpp>
 #include <dsptb/core/backend.hpp>
 #include <dsptb/core/logging.hpp>
@@ -33,6 +37,10 @@ struct ModuleUiState {
     char renameBuf[64] = {};
     bool renameFocus = false;
     float typedValue = 0.0f; // the right-click "type a value" popup
+    // Offline modules: one worker, so runs queue up. A finished run is dropped on the UI thread, which is
+    // where the module must be destroyed.
+    std::map<InstanceId, std::shared_ptr<dsptb::OfflineRun>> offlineRuns;
+    std::unique_ptr<dsptb::WorkerPool> offlinePool;
 };
 
 // Everything the shell (dockspace, menus, panels, status bar, banners) needs for one frame.

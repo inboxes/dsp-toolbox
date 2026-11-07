@@ -528,13 +528,12 @@ int run(HINSTANCE instance, const Options& opt) {
             }
         }
 
-        // Smoke test: add one instance of every installed processor and analyzer, run, then remove them
+        // Smoke test: add one instance of every installed module, run, then remove them
         // again.
         if (opt.smokeTest && frame == 8) {
             for (const auto& pkg : registry.packages())
                 for (const auto& mm : pkg->manifest.modules)
-                    if (mm.kind == "processor" || mm.kind == "analyzer")
-                        ui::addModuleInstance(shell, mm.id);
+                    ui::addModuleInstance(shell, mm.id);
             spdlog::info("smoke test: {} module instance(s) added", model->instances().size());
         }
         if (opt.smokeTest && frame == totalFrames - 60) {
@@ -613,6 +612,10 @@ int run(HINSTANCE instance, const Options& opt) {
             } else if (action == "tap:pre" || action == "tap:post") {
                 // Moves the most recently added analyzer to the PRE or POST tap.
                 model->setTap(shell.moduleUi.lastAdded, action == "tap:pre" ? DSPTB_TAP_PRE : DSPTB_TAP_POST);
+            } else if (action == "run") {
+                // Starts the most recently added offline module on the loaded file.
+                if (!ui::startOfflineRun(shell, shell.moduleUi.lastAdded))
+                    spdlog::warn("--test-action run: nothing to run");
             } else if (action.rfind("label:", 0) == 0) {
                 // label:<text> names the most recently added instance.
                 model->setLabel(shell.moduleUi.lastAdded, action.substr(6));
@@ -703,6 +706,7 @@ int run(HINSTANCE instance, const Options& opt) {
 
     const uint64_t engineCallbacks = audio->engine().callbacks();
     const uint64_t engineUnderruns = audio->engine().underruns();
+    ui::stopOfflineRuns(shell);
     shell.session = nullptr;
     session.reset(); // stops a running recording; needs the model
     shell.model = nullptr;

@@ -27,6 +27,8 @@ Set-Location $root
 
 # No named parameters: PowerShell would bind an argument such as cmake's -E to a parameter called -exe.
 function Invoke-Checked {
+    # A tool's warning on stderr isn't a failure: the exit code says that. Windows PowerShell would stop on it.
+    $ErrorActionPreference = 'Continue'
     $exe, $rest = $args
     & $exe @rest
     if ($LASTEXITCODE) { throw "$($args -join ' ') failed with exit code $LASTEXITCODE" }

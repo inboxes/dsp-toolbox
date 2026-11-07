@@ -17,8 +17,8 @@ bool analyzeWithModule(ModuleRegistry& registry, const AnalyzeModuleOptions& opt
     const dsptb_module_desc* desc = registry.descriptor(options.moduleId, &pkg, error);
     if (!desc)
         return false;
-    if (desc->kind != DSPTB_KIND_ANALYZER) {
-        error = options.moduleId + " is not an analyzer";
+    if (desc->kind != DSPTB_KIND_ANALYZER && desc->kind != DSPTB_KIND_OFFLINE) {
+        error = options.moduleId + " is not an analyzer or offline module";
         return false;
     }
     SimpleModuleHost host;
@@ -37,6 +37,21 @@ bool analyzeWithModule(ModuleRegistry& registry, const AnalyzeModuleOptions& opt
         return false;
 
     const size_t frames = input.frames();
+    if (desc->kind == DSPTB_KIND_OFFLINE) {
+        const float* channels[2] = {input.ch[0].data(), input.ch[1].data()};
+        int result = 1;
+        if (!inst->callRunOffline(channels, 2, frames, static_cast<double>(input.sampleRate), nullptr, nullptr,
+                                  result) ||
+            result != 0) {
+            error = options.moduleId + " failed while running";
+            return false;
+        }
+        if (!inst->dumpFrames(dumpJson)) {
+            error = options.moduleId + " has no frame dump (it does not export dsptb_dump_frames)";
+            return false;
+        }
+        return true;
+    }
     const uint32_t block = std::clamp<uint32_t>(options.blockFrames, 32, AnalysisHost::kChunk);
     for (size_t pos = 0; pos < frames; pos += block) {
         const uint32_t n = static_cast<uint32_t>(std::min<size_t>(block, frames - pos));

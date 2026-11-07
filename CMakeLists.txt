@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(dsptb VERSION 0.1.0 LANGUAGES C CXX RC)
+project(dsptb VERSION 0.2.0 LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -86,6 +86,7 @@ add_library(dsptb_core STATIC
   core/src/session_io.cpp
   core/src/recorder.cpp
   core/src/export_job.cpp
+  core/src/offline_run.cpp
   core/src/offline_render.cpp
   core/src/recording_canvas.cpp
   core/src/module_validator.cpp

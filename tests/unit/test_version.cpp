@@ -5,5 +5,5 @@
 #include <cstring>
 
 TEST_CASE("version string matches the CMake project version") {
-    CHECK(std::strcmp(dsptb::versionString(), "0.1.0") == 0);
+    CHECK(std::strcmp(dsptb::versionString(), "0.2.0") == 0);
 }
