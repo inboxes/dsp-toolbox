@@ -137,6 +137,7 @@ constexpr Icon kLoop{"\U0001F501", 0x1F501, "Loop"};
 constexpr Icon kOpen{"\U0001F4C2", 0x1F4C2, "Open"};
 constexpr Icon kMuteOff{"\U0001F50A", 0x1F50A, "Mute"};
 constexpr Icon kMuteOn{"\U0001F507", 0x1F507, "Muted"};
+constexpr Icon kRecord{"⏺", 0x23FA, "Rec"};
 
 // Returns true when clicked. `active` draws it as a pressed toggle, `danger` in red.
 bool iconButton(const char* id, const Icon& icon, const char* tooltip, bool active = false,
@@ -308,6 +309,31 @@ void applyAudioSettingsFromConfig(ShellContext& ctx) {
 // Transport panel
 // ---------------------------------------------------------------------------------------------------------
 
+// Record and stop beside the transport, with the tap to record. Audio > Record keeps the folder choice.
+void drawRecordControls(ShellContext& ctx) {
+    if (!ctx.session)
+        return;
+    static int tap = 1; // 0 = input (PRE), 1 = output (POST)
+    SessionController& sc = *ctx.session;
+    const bool recording = sc.recorder().active();
+    if (iconButton("record", kRecord,
+                   recording ? "Stop recording" : (tap == 0 ? "Record the input (PRE)" : "Record the output (POST)"),
+                   recording, recording)) {
+        if (recording)
+            sc.stopRecording();
+        else
+            sc.startRecording(tap == 0 ? DSPTB_TAP_PRE : DSPTB_TAP_POST);
+    }
+    ImGui::SameLine();
+    static constexpr const char* kTaps[] = {"PRE", "POST"};
+    ImGui::BeginDisabled(recording);
+    ImGui::SetNextItemWidth(64.0f * dpiScale());
+    ImGui::Combo("##rectap", &tap, kTaps, IM_ARRAYSIZE(kTaps));
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip("What to record: PRE is the input before the processors, POST the output after them.");
+}
+
 void drawTransportPanel(ShellContext& ctx) {
     if (!beginPanel(ctx, kTransport))
         return;
@@ -453,6 +479,8 @@ void drawTransportPanel(ShellContext& ctx) {
     if (iconButton("mute", muted ? kMuteOn : kMuteOff,
                    muted ? "Output is muted. Click to unmute (Esc)" : "Mute the output (Esc)", false, muted))
         e.setMute(!muted);
+    ImGui::SameLine();
+    drawRecordControls(ctx);
     ImGui::SameLine();
     if (muted)
         ImGui::TextColored(ImVec4(0.95f, 0.40f, 0.40f, 1.0f), "MUTED");
