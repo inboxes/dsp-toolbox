@@ -37,7 +37,7 @@ double linearPeakToDb(double peak) noexcept {
 }
 
 ebur128_state* createState(double sampleRate, unsigned channels) {
-    // The full mode set from spec §4.3. HISTOGRAM gives constant memory:
+    // The full mode set. HISTOGRAM gives constant memory:
     // without it add_frames appends to a growing block list and allocates.
     constexpr int kMode = EBUR128_MODE_M | EBUR128_MODE_S | EBUR128_MODE_I | EBUR128_MODE_LRA |
                           EBUR128_MODE_TRUE_PEAK | EBUR128_MODE_SAMPLE_PEAK | EBUR128_MODE_HISTOGRAM;

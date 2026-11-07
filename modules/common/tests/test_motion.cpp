@@ -471,7 +471,7 @@ TEST_CASE("motion: count 0 is the origin, count 1 is that keyframe") {
 }
 
 TEST_CASE("motion: a non-finite clock is treated as t = 0") {
-    // Maintainer nit on PR #28: std::fmod(inf, duration) is NaN, and the
+    // std::fmod(inf, duration) is NaN, and the
     // negative/NaN check in mapTime does not catch +inf — without the
     // isfinite guard the NaN would leak into positionAt on Loop/PingPong.
     const Keyframe keys[] = {

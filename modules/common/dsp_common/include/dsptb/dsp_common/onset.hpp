@@ -53,7 +53,7 @@ struct OnsetEvent {
 // Stream start: the median history is empty for frame 0, so its threshold
 // is δ alone (the median of no values is 0). A loud first frame can
 // therefore fire a frame-0 onset at any λ. This is kept deliberately —
-// requiring history before any frame could fire would change the §4.7
+// requiring history before any frame could fire would change the
 // formula — and it is why the acceptance tests tolerate an onset in the
 // first 100 ms of a stream.
 //

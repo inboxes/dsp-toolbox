@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the colormap lookup tables for dsptb::dsp (spec dsp-common.md §4.4).
+"""Generate the colormap lookup tables for dsptb::dsp.
 
 Writes dsp_common/src/colormap_data.inl: 256-entry packed RGBA8 tables
 (R | G<<8 | B<<16 | A<<24, A = 255) for Magma, Viridis and Inferno, sampled
@@ -30,7 +30,7 @@ ENTRIES_PER_LINE = 8
 
 
 def pack(r: int, g: int, b: int) -> int:
-    # Spec §4.4 packing: R | G<<8 | B<<16 | A<<24 with A = 255, i.e. the bytes
+    # Packing: R | G<<8 | B<<16 | A<<24 with A = 255, i.e. the bytes
     # in memory are R, G, B, A (DXGI_FORMAT_R8G8B8A8_UNORM / IM_COL32 order).
     return r | (g << 8) | (b << 16) | (255 << 24)
 
@@ -50,7 +50,7 @@ def cie_lightness(r: float, g: float, b: float) -> float:
 
 
 def assert_float_lightness_strictly_increasing(mpl_name: str, floats: list[tuple[float, float, float]]) -> None:
-    # Maintainer ruling on issue #9: the strict L* criterion applies to the
+    # the strict L* criterion applies to the
     # unquantised float source, where it holds. It does NOT survive the
     # round(255*c) quantisation to RGBA8 (Viridis gains byte-identical
     # neighbours), so it is asserted here, on the floats, and the C++ test
@@ -75,7 +75,7 @@ def table_lines(cpp_name: str, mpl_name: str) -> list[str]:
         floats.append((r, g, b))
         # round() is round-half-even. That matches the issue's round(255*c)
         # only because no sample sits near a .5 boundary in 255*c — assert
-        # that here (review suggestion on PR #23) instead of just claiming
+        # that here instead of just claiming
         # it, so a future matplotlib version cannot silently change a table
         # entry through the rounding mode.
         for c in (r, g, b):

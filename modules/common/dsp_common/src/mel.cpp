@@ -10,7 +10,7 @@ namespace dsptb::dsp {
 namespace {
 
 constexpr double kPi = 3.14159265358979323846;
-constexpr double kLogMelAmin = 1e-10; // spec §1 silence floor (power)
+constexpr double kLogMelAmin = 1e-10; // spec silence floor (power)
 
 bool isPowerOfTwo(std::size_t n) noexcept { return n != 0 && (n & (n - 1)) == 0; }
 

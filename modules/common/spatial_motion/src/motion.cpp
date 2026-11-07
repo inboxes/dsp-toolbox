@@ -16,7 +16,7 @@ constexpr double kPi = 3.14159265358979323846;
 constexpr double kDegToRad = kPi / 180.0;
 constexpr double kRadToDeg = 180.0 / kPi;
 
-// Spec §5 (Smooth): if neighbouring points coincide (distance < 1e-6), the
+// if neighbouring points coincide (distance < 1e-6), the
 // segment falls back to Linear. This also keeps every centripetal knot
 // interval strictly positive.
 constexpr double kCoincidentDistance = 1e-6;
@@ -81,7 +81,7 @@ DVec3 catmullRom(const DVec3& p0, const DVec3& p1, const DVec3& p2, const DVec3&
 
 // Position at segment parameter u in [0, 1] while travelling from p1 to p2;
 // p0 and p3 are the neighbouring points used by the Smooth curve.
-// smoothFallback is the spec §5 rule "if neighbouring points coincide
+// smoothFallback is the rule "if neighbouring points coincide
 // (distance < 1e-6), fall back to Linear", as decided by the caller: it
 // covers coincident *keyframe* points. The duplicated endpoint the spec
 // substitutes at a path end (p0 == p1 by construction, not a keyframe

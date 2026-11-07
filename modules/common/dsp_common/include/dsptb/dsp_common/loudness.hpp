@@ -84,7 +84,7 @@ private:
     unsigned channels_;
     std::size_t maxBlock_;
     // ebur128_state*, held as void* so this public header does not include
-    // <ebur128.h> (the dependency stays PRIVATE to the library, spec §3).
+    // <ebur128.h> (the dependency stays PRIVATE to the library).
     // Mutable because the libebur128 getters take a non-const state.
     mutable void* state_ = nullptr;
     // Preallocated interleaved scratch, maxBlock_ * channels_ floats.

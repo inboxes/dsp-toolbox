@@ -56,7 +56,7 @@ struct PsolaConfig {
 // [0, T0] (T0 = fs/f0) as whole periods are skipped (shift up) or repeated
 // (shift down), each jump crossfaded between the old and the new read
 // position over min(T0/2, 2 ms) with a raised cosine. The optional
-// +-2-sample best-match refinement of §4.11 is NOT used: jumping by
+// +-2-sample best-match refinement is NOT used: jumping by
 // exactly one period already lands on the same point of the waveform.
 // When the input becomes unvoiced (or ratio returns to 1), e is returned
 // to 0 with one crossfaded jump, so the ratio = 1 and unvoiced outputs

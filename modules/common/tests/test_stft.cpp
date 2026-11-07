@@ -94,7 +94,7 @@ TEST_CASE("stft: 1 kHz sine at -6 dBFS peaks at 1 kHz within tolerance (Hann and
                 // keep the non-bin-centred
                 // 1 kHz tone and widen the Hann tolerance to +/-0.75 dB.
                 // 1 kHz is 1/3 bin off-centre, so the periodic Hann window's
-                // 0.63 dB scalloping loss makes the §4.2 value about
+                // 0.63 dB scalloping loss makes the expected value about
                 // -6.63 dB. The separate bin-centred test below checks the
                 // amplitude scaling tightly.
                 INFO("Hann peak = ", peakDb, " dB");
@@ -107,7 +107,7 @@ TEST_CASE("stft: 1 kHz sine at -6 dBFS peaks at 1 kHz within tolerance (Hann and
 TEST_CASE("stft: bin-centred Hann sine checks amplitude scaling within 0.1 dB") {
     // Bin 85 at fft 4096 / 48 kHz is exactly 996.09375 Hz. With no
     // scalloping loss, this isolates the 2/sum(w) amplitude correction in
-    // spec §4.2, so the maintainer asked for a tight +/-0.1 dB check here.
+    // the requirement, so the maintainer asked for a tight +/-0.1 dB check here.
     const double amp = std::pow(10.0, -6.0 / 20.0);
     const std::vector<float> signal = sineSamples(4096 + 3 * 1024, 996.09375, amp);
 

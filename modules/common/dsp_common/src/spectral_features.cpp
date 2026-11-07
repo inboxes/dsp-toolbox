@@ -121,7 +121,7 @@ SpectralFeatures SpectralFeatureExtractor::computeFeatures(const float* frame,
             sumSq += diff * diff;
         }
         // K is the number of bins, following the (1/K) * sum_k normaliser
-        // of §4.8's novelty.
+        // of the novelty.
         out.flux = static_cast<float>(std::sqrt(sumSq) / static_cast<double>(binCount));
     } else {
         out.flux = 0.0f;

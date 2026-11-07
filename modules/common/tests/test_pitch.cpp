@@ -119,7 +119,7 @@ TEST_CASE("pitch: sine 220 Hz passes at 44.1 kHz and 96 kHz") {
 }
 
 TEST_CASE("pitch: sine 220 Hz at -60 dBFS stays within +/-0.5 Hz") {
-    // Maintainer review nit on PR #25: the CMND is a ratio of energies,
+    // the CMND is a ratio of energies,
     // so it should be scale-invariant in practice — but the correlation
     // goes through a float FFT while the energy terms are double, so
     // d(τ) near a true period is a difference of two large similar

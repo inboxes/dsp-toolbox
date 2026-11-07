@@ -108,7 +108,7 @@ bool SpectralFluxOnset::processFrame(float& noveltyOut, OnsetEvent& eventOut) no
             (!hasLastOnset_ ||
              static_cast<double>(candidate - lastOnsetFrame_) >= minIntervalFrames_)) {
             eventOut.frameIndex = candidate;
-            // Per the maintainer ruling on PR #26 (2026-11-05), timeSeconds
+            // timeSeconds
             // is the frame CENTRE, not the frame start: a click is only
             // detected once it is well inside the frame, so the start trails
             // it by close to a whole window — in samples fixed, in time

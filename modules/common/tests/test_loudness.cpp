@@ -450,7 +450,7 @@ TEST_CASE("level: invalid configuration throws") {
 }
 
 // ---------------------------------------------------------------------------
-// Micro-benchmark (spec §6, report only: numbers are printed, not asserted,
+// Micro-benchmark (report only: numbers are printed, not asserted,
 // because CI runner timing is not a correctness signal)
 // ---------------------------------------------------------------------------
 

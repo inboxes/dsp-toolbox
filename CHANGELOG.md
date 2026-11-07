@@ -2,6 +2,17 @@
 
 All notable changes to this project are recorded here. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Spectrogram:** an optional note grid on the Log axis.
+- `dsp_common`: tuning and note maths, a semitone-spaced pitch spectrum, and a tuning estimator.
+
+### Changed
+
+- Key detection estimates the recording's tuning instead of assuming A4 = 440 Hz.
+
 ## [0.1.0] - Unreleased
 
 First release.
