@@ -260,7 +260,7 @@ Required callbacks by kind. **Processor**: create, destroy, prepare, reset, late
 | process | audio, or offline worker | **yes** | In-place. `n` ≤ `max_block_frames`, and `n` can vary per call, including 0. |
 | reset | audio | **yes** | Clear delay lines and filters; keep params and state |
 | analyze | analysis thread (or own) | should avoid alloc | Publish results with `TripleBuffer` for `draw` |
-| run_offline | worker | no | Poll `is_cancelled` at least every 50 ms |
+| run_offline | worker | no | Poll `is_cancelled` at least every 50 ms. In the app, `channels` holds the file at its own sample rate, which can differ from the session's: use `sample_rate`. |
 | draw | UI | no | Must not block; read the latest results only |
 | latency_frames / tail_frames | any | yes | Constant between prepares |
 

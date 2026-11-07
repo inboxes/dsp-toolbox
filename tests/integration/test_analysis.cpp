@@ -2,6 +2,7 @@
 
 #include <doctest/doctest.h>
 
+#include <dsptb/core/audio_io.hpp>
 #include <dsptb/core/engine.hpp>
 #include <dsptb/core/module_validator.hpp>
 #include <dsptb/core/offline_analyze.hpp>
@@ -333,6 +334,47 @@ TEST_CASE("offline run: finishes, can be cancelled, and survives its instance be
         CHECK(ms <= 100.0);
         CHECK(run->cancelled());
         CHECK_FALSE(run->succeeded());
+        std::string out;
+        REQUIRE(inst->dumpFrames(out));
+        CHECK_FALSE(json::parse(out).contains("seconds"));
+    }
+    SUBCASE("from a file: measures the file at its own rate, whatever the session runs at") {
+        const AudioBuffer original = sine(440.0, -6.0, 3.0, 44100);
+        PcmAudio pcm;
+        pcm.channels = 2;
+        pcm.sampleRate = original.sampleRate;
+        for (size_t i = 0; i < original.frames(); ++i) {
+            pcm.samples.push_back(original.ch[0][i]);
+            pcm.samples.push_back(original.ch[1][i]);
+        }
+        const auto path = std::filesystem::temp_directory_path() / "dsptb_offline_run_44k.wav";
+        REQUIRE(writeWav(path, pcm, WavFormat::F32, err));
+
+        auto inst = ModuleInstance::create(1, *pkg, *desc, &host, err);
+        REQUIRE(inst);
+        auto run = OfflineRun::startFromFile(pool, inst, path);
+        while (!run->done())
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        CHECK(run->succeeded());
+        CHECK(run->progress() == doctest::Approx(1.0f));
+        std::string out;
+        REQUIRE(inst->dumpFrames(out));
+        const json fromFile = json::parse(out);
+        CHECK(fromFile["sampleRate"].get<double>() == doctest::Approx(44100.0));
+        // The same samples, so exactly the same report as a run over them directly.
+        CHECK(fromFile == dump("org.dsptb.fileanalysis", original));
+        std::filesystem::remove(path);
+    }
+    SUBCASE("from a file: a missing file is an error, with no result") {
+        auto inst = ModuleInstance::create(1, *pkg, *desc, &host, err);
+        REQUIRE(inst);
+        const auto path = std::filesystem::temp_directory_path() / "dsptb_no_such.wav";
+        auto run = OfflineRun::startFromFile(pool, inst, path);
+        while (!run->done())
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        CHECK_FALSE(run->succeeded());
+        CHECK_FALSE(run->cancelled());
+        CHECK_FALSE(run->error().empty());
         std::string out;
         REQUIRE(inst->dumpFrames(out));
         CHECK_FALSE(json::parse(out).contains("seconds"));

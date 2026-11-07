@@ -1,5 +1,7 @@
 #include "dsptb/core/offline_run.hpp"
 
+#include "dsptb/core/audio_io.hpp"
+
 #include <chrono>
 #include <thread>
 
@@ -18,6 +20,16 @@ std::shared_ptr<OfflineRun> OfflineRun::start(WorkerPool& pool, std::shared_ptr<
     return run;
 }
 
+std::shared_ptr<OfflineRun> OfflineRun::startFromFile(WorkerPool& pool, std::shared_ptr<ModuleInstance> instance,
+                                                      std::filesystem::path file) {
+    std::shared_ptr<OfflineRun> run(new OfflineRun);
+    run->instance_ = std::move(instance);
+    run->file_ = std::move(file);
+    OfflineRun* raw = run.get(); // as in start()
+    pool.submit([raw] { raw->run(); });
+    return run;
+}
+
 OfflineRun::~OfflineRun() {
     cancel();
     while (!done())
@@ -28,6 +40,17 @@ void OfflineRun::run() noexcept {
     try {
         ModuleInstance& inst = *instance_;
         std::string error;
+        if (!file_.empty()) {
+            if (!decodeToStereo(file_, 0, decoded_, error, &decodeProgress_, &cancel_)) {
+                if (cancel_.load(std::memory_order_relaxed))
+                    cancelled_ = true;
+                else
+                    error_ = error;
+                done_.store(true, std::memory_order_release);
+                return;
+            }
+            audio_ = &decoded_;
+        }
         if (inst.prepare(static_cast<double>(audio_->sampleRate), kOfflineMaxBlock, true, error)) {
             const float* channels[2] = {audio_->ch[0].data(), audio_->ch[1].data()};
             int result = 1;

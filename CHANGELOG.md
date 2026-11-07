@@ -6,7 +6,7 @@ All notable changes to this project are recorded here. The format follows [Keep 
 
 ### Added
 
-- Offline modules: **Run**, progress and **Cancel** in the Chain panel, for modules that analyze a whole file. `dsptb-cli` and `validate` handle them too.
+- Offline modules: **Run**, progress and **Cancel** in the Chain panel, for modules that analyze a whole file. They read the file at its own sample rate, not the copy resampled for playback. `dsptb-cli` and `validate` handle them too.
 - **Spectrogram:** an optional note grid on the Log axis.
 - `dsp_common`: tuning and note maths, a semitone-spaced pitch spectrum, and a tuning estimator.
 

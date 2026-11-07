@@ -459,7 +459,7 @@ bool startOfflineRun(ShellContext& ctx, InstanceId id) {
     if (!ctx.moduleUi.offlinePool)
         ctx.moduleUi.offlinePool = std::make_unique<WorkerPool>(1);
     ctx.moduleUi.offlineRuns[id] =
-        OfflineRun::start(*ctx.moduleUi.offlinePool, rec->instance, file->audio, file);
+        OfflineRun::startFromFile(*ctx.moduleUi.offlinePool, rec->instance, fromUtf8(file->path));
     return true;
 }
 

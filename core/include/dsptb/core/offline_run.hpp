@@ -1,12 +1,13 @@
 #pragma once
 
-// Runs one offline module over the working file on a worker thread, with progress and cancel.
+// Runs one offline module over a whole file on a worker thread, with progress and cancel.
 
 #include "audio_buffer.hpp"
 #include "module_instance.hpp"
 #include "worker_pool.hpp"
 
 #include <atomic>
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -18,12 +19,20 @@ public:
     // drops it on the UI thread, so the module is always destroyed there, as the ABI promises.
     static std::shared_ptr<OfflineRun> start(WorkerPool& pool, std::shared_ptr<ModuleInstance> instance,
                                              const AudioBuffer& audio, std::shared_ptr<const void> keepAlive);
+    // Decodes `file` on the worker at the file's own sample rate, then runs the module over that. A report on a
+    // file has to measure its samples, not the copy resampled to the audio device's rate for playback.
+    static std::shared_ptr<OfflineRun> startFromFile(WorkerPool& pool, std::shared_ptr<ModuleInstance> instance,
+                                                     std::filesystem::path file);
     // Cancels, and waits for the worker to let go of the module.
     ~OfflineRun();
     OfflineRun(const OfflineRun&) = delete;
     OfflineRun& operator=(const OfflineRun&) = delete;
 
-    float progress() const { return progress_.load(std::memory_order_relaxed); }
+    // A run that decodes gives the first half of the bar to decoding, so the bar doesn't fill twice.
+    float progress() const {
+        const float job = progress_.load(std::memory_order_relaxed);
+        return file_.empty() ? job : 0.5f * (decodeProgress_.load(std::memory_order_relaxed) + job);
+    }
     bool done() const { return done_.load(std::memory_order_acquire); }
     void cancel() { cancel_.store(true, std::memory_order_relaxed); }
     // Valid once done(): success, cancelled (no error text), or the failure reason.
@@ -38,7 +47,9 @@ private:
     std::shared_ptr<ModuleInstance> instance_;
     const AudioBuffer* audio_ = nullptr;
     std::shared_ptr<const void> keepAlive_;
-    std::atomic<float> progress_{0.0f};
+    std::filesystem::path file_; // empty when `audio_` was handed in
+    AudioBuffer decoded_;        // what `audio_` points at when `file_` is set
+    std::atomic<float> progress_{0.0f}, decodeProgress_{0.0f};
     std::atomic<bool> cancel_{false}, done_{false};
     bool ok_ = false, cancelled_ = false;
     std::string error_;
