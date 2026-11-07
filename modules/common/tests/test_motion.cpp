@@ -256,12 +256,12 @@ TEST_CASE("motion: path linear timeline matches hand-computed positions") {
     CHECK(ev.duration() == doctest::Approx(4.5)); // 1 + 2 + 0.5 + 1
     // Hand computation on A = (0,0,0), B = (2,0,0), C = (2,0,-2) with the
     // phases in handTimelineSpec's comment:
-    //   t = 0.5: inside hold A                     -> A = (0,0,0)
-    //   t = 1.0: travel B starts (u = 0)           -> A = (0,0,0)
-    //   t = 2.0: travel B halfway (u = 0.5)        -> A + 0.5*(B-A) = (1,0,0)
-    //   t = 3.25: inside hold B                     -> B = (2,0,0)
-    //   t = 4.0: travel C halfway (u = 0.5)        -> B + 0.5*(C-B) = (2,0,-1)
-    //   t = 4.5: end of the pass                   -> C = (2,0,-2)
+    //   t = 0.5  : inside hold A                     -> A = (0,0,0)
+    //   t = 1.0  : travel B starts (u = 0)           -> A = (0,0,0)
+    //   t = 2.0  : travel B halfway (u = 0.5)        -> A + 0.5*(B-A) = (1,0,0)
+    //   t = 3.25 : inside hold B                     -> B = (2,0,0)
+    //   t = 4.0  : travel C halfway (u = 0.5)        -> B + 0.5*(C-B) = (2,0,-1)
+    //   t = 4.5  : end of the pass                   -> C = (2,0,-2)
     checkVec(ev.positionAt(0.5), 0.0, 0.0, 0.0, 1e-6);
     checkVec(ev.positionAt(1.0), 0.0, 0.0, 0.0, 1e-6);
     checkVec(ev.positionAt(2.0), 1.0, 0.0, 0.0, 1e-6);

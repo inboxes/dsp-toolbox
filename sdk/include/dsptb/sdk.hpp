@@ -3,7 +3,7 @@
 // C++ SDK for DSP Toolbox modules (MODULE_SDK §5). Header-only. Include this one header; it pulls in the
 // C ABI, parameter builders, the canvas wrapper, the real-time primitives and the dsp helpers.
 //
-//   class Gain final: public dsptb::Processor<Gain> { ... };
+//   class Gain final : public dsptb::Processor<Gain> { ... };
 //   DSPTB_DEFINE_RT_GUARD();        // once per module, in one .cpp (see rt/rt_guard.hpp)
 //   DSPTB_REGISTER_MODULES(Gain)    // generates dsptb_module_count / dsptb_module_get
 
@@ -55,7 +55,7 @@ struct PrepareInfo {
     bool offline = false;
 };
 
-// Planar channel pointers; iterates as float* so `for (auto ch: b.channels())` works.
+// Planar channel pointers; iterates as float* so `for (auto ch : b.channels())` works.
 struct ChannelRange {
     float* const* first = nullptr;
     uint32_t count = 0;
@@ -188,7 +188,7 @@ public:
     static constexpr dsptb_kind kind = DSPTB_KIND_OFFLINE;
 };
 
-// CRTP tags: `class Gain final: public dsptb::Processor<Gain>`. T supplies `info` and `params`.
+// CRTP tags: `class Gain final : public dsptb::Processor<Gain>`. T supplies `info` and `params`.
 template <class T> class Processor : public ProcessorBase {};
 template <class T> class Analyzer : public AnalyzerBase {};
 template <class T> class OfflineJob : public OfflineJobBase {};
