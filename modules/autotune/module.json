@@ -17,7 +17,7 @@
     "key_source": "Track reads the key from the loaded file. Manual uses the Key and Scale you choose.",
     "ref_a4": "The pitch of A4 for note names and correction. Most music uses 440 Hz.",
     "note_hold": "Stops a held note flipping between two targets. The target only moves to the next note once you sing this far past the halfway point between them. Raise it if long notes jump; lower it if fast melodies lag.",
-    "voice_range": "Limits which pitches count as singing. A narrower range avoids octave mistakes.",
+    "voice_range": "The octave you sing in. A pitch an octave outside it is moved into it, which fixes most octave mistakes.",
     "silence_db": "Anything quieter than this passes through uncorrected."
   }
 }

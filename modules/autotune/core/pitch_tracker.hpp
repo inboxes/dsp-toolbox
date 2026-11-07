@@ -25,8 +25,10 @@ public:
     void reset() noexcept;
 
 private:
-    float previous_ = 0.0f; // the last accepted f0; 0 after an unvoiced hop
+    float previous_ = 0.0f; // the last accepted f0; 0 when no note is sounding
+    float pending_ = 0.0f;  // the first estimate of a note that hasn't started yet
     int heldHops_ = 0;      // hops a jump has been ignored for
+    int gapHops_ = 0;       // unusable hops bridged in the current note
 };
 
 } // namespace dsptb::autotune

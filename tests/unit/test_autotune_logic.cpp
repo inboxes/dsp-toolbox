@@ -102,49 +102,80 @@ TEST_CASE("autotune: pitch tracking") {
     PitchTracker t;
     const PitchTrackerConfig config;
     const auto voiced = [&](float hz) { return t.update(hz, true, -20.0f, config); };
+    const auto start = [&](float hz) { // a note starts once two hops agree
+        CHECK_FALSE(voiced(hz).voiced);
+        return voiced(hz);
+    };
+    const auto dropout = [&] { return t.update(0.0f, false, -20.0f, config); };
 
     SUBCASE("what counts as unvoiced") {
-        CHECK_FALSE(t.update(440.0f, false, -20.0f, config).voiced);
         CHECK_FALSE(t.update(440.0f, true, -60.0f, config).voiced);
-        CHECK_FALSE(t.update(70.0f, true, -20.0f, config).voiced);
-        CHECK_FALSE(t.update(1200.0f, true, -20.0f, config).voiced);
+        CHECK_FALSE(t.update(440.0f, true, -60.0f, config).voiced);
+        CHECK_FALSE(dropout().voiced);
         PitchTrackerConfig narrow = config;
         narrow.minHz = 200.0f;
-        CHECK_FALSE(t.update(150.0f, true, -20.0f, narrow).voiced);
+        narrow.maxHz = 300.0f; // 350 Hz has no octave between 200 and 300 Hz
+        CHECK_FALSE(t.update(350.0f, true, -20.0f, narrow).voiced);
+        CHECK_FALSE(t.update(350.0f, true, -20.0f, narrow).voiced);
+    }
+    SUBCASE("a note starts on the second agreeing hop") {
+        CHECK_FALSE(voiced(440.0f).voiced);
+        CHECK_FALSE(voiced(600.0f).voiced); // disagrees: starts over
+        CHECK(voiced(610.0f).voiced);
     }
     SUBCASE("MIDI follows the reference") {
-        CHECK(voiced(440.0f).midi == doctest::Approx(69.0f));
+        CHECK(start(440.0f).midi == doctest::Approx(69.0f));
         t.reset();
         PitchTrackerConfig a432 = config;
         a432.refA4 = 432.0f;
+        t.update(432.0f, true, -20.0f, a432);
         CHECK(t.update(432.0f, true, -20.0f, a432).midi == doctest::Approx(69.0f));
     }
     SUBCASE("small changes pass straight through") {
-        voiced(440.0f);
+        start(440.0f);
         CHECK(voiced(470.0f).f0Hz == doctest::Approx(470.0f)); // 114 cents
     }
     SUBCASE("a jump to the third harmonic is held too") {
-        voiced(220.0f);
+        start(220.0f);
         CHECK(voiced(660.0f).f0Hz == doctest::Approx(220.0f));
         CHECK(voiced(330.0f).f0Hz == doctest::Approx(220.0f)); // a fifth
         CHECK(voiced(220.0f).f0Hz == doctest::Approx(220.0f));
     }
-    SUBCASE("an unvoiced hop forgets the last note") {
-        voiced(440.0f);
-        t.update(0.0f, false, -20.0f, config);
-        CHECK(voiced(300.0f).f0Hz == doctest::Approx(300.0f));
+    SUBCASE("short dropouts keep the note; a long one ends it") {
+        start(300.0f);
+        for (int i = 0; i < 4; ++i)
+            CHECK(dropout().f0Hz == doctest::Approx(300.0f));
+        CHECK_FALSE(dropout().voiced);
+        CHECK_FALSE(voiced(200.0f).voiced); // a new note has to start again
+        CHECK(voiced(200.0f).f0Hz == doctest::Approx(200.0f));
+    }
+    SUBCASE("silence ends a note at once") {
+        start(300.0f);
+        CHECK_FALSE(t.update(300.0f, true, -60.0f, config).voiced);
     }
     SUBCASE("a jump is held for three hops, then accepted") {
-        voiced(220.0f);
+        start(220.0f);
         for (int i = 0; i < 3; ++i)
             CHECK(voiced(440.0f).f0Hz == doctest::Approx(220.0f));
         CHECK(voiced(440.0f).f0Hz == doctest::Approx(440.0f));
     }
     SUBCASE("a short octave error leaves the pitch alone") {
-        voiced(220.0f);
+        start(220.0f);
         voiced(440.0f);
         voiced(440.0f);
         CHECK(voiced(220.0f).f0Hz == doctest::Approx(220.0f));
+    }
+    SUBCASE("the voice range folds an octave error back in") {
+        PitchTrackerConfig low = config;
+        low.minHz = 80.0f;
+        low.maxHz = 400.0f;
+        t.update(392.0f * 2.0f, true, -20.0f, low);
+        const TrackedPitch p = t.update(392.0f * 2.0f, true, -20.0f, low);
+        CHECK(p.voiced);
+        CHECK(p.f0Hz == doctest::Approx(392.0f));
+        t.reset();
+        t.update(60.0f, true, -20.0f, low);
+        CHECK(t.update(60.0f, true, -20.0f, low).f0Hz == doctest::Approx(120.0f));
     }
 }
 
