@@ -56,11 +56,14 @@ void addRenderCommand(CLI::App& app, int& exitCode) {
     cmd->add_option("--out", *out, "Output WAV")->required();
     cmd->add_option("--block", *block, "Block size in frames")->capture_default_str();
     cmd->add_option("--tail", *tail, "Seconds appended after the input")->capture_default_str();
+    auto workingFile = std::make_shared<std::string>();
+    cmd->add_option("--working-file", *workingFile,
+                    "Audio file modules see as the working file, such as a backing track (default: the input)");
     cmd->add_option("--format", *format, "f32, s24 or s16")->capture_default_str();
     cmd->add_option(
         "--module-dir", *moduleDirs,
         "Extra folder to scan for module packages (repeatable); the app's own folders are always scanned");
-    cmd->callback([&exitCode, session, in, out, format, block, tail, moduleDirs] {
+    cmd->callback([&exitCode, session, in, out, format, block, tail, moduleDirs, workingFile] {
         const auto fail = [&](const std::string& msg, int code = 2) {
             std::fprintf(stderr, "error: %s\n", msg.c_str());
             exitCode = code;
@@ -102,6 +105,12 @@ void addRenderCommand(CLI::App& app, int& exitCode) {
         RenderOptions opt;
         opt.blockFrames = static_cast<uint32_t>(std::max(32, *block));
         opt.tailSeconds = *tail;
+        if (!workingFile->empty()) {
+            auto backing = std::make_shared<AudioBuffer>();
+            if (!decodeToStereo(fs::path(*workingFile), input.sampleRate, *backing, error))
+                return fail(*workingFile + ": " + error);
+            opt.workingFile = backing;
+        }
         AudioBuffer rendered;
         if (!renderOffline(registry, desc, input, opt, rendered, error))
             return fail(error, 1);

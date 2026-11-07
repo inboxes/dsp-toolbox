@@ -6,6 +6,7 @@
 
 #include <atomic>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -34,6 +35,9 @@ SessionDescription descriptionFromSession(const SessionDoc& doc);
 struct RenderOptions {
     uint32_t blockFrames = 512; // determinism: the default block size is 512
     double tailSeconds = 2.0;   // appended after the input, so effect tails are not cut off
+    // What modules see as the working file. Null: the input itself. A different file stands in for a backing
+    // track, as in Mic + track.
+    std::shared_ptr<const AudioBuffer> workingFile;
     // Optional: progress in [0,1] (written after every block) and a cancel flag (checked every block; the
     // render then fails with error "cancelled").
     std::atomic<float>* progress = nullptr;
