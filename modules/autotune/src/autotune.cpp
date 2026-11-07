@@ -1,0 +1,281 @@
+// Autotune (org.dsptb.autotune): detect what is being sung, decide which note it should be, and shift the voice by
+// the difference. One Strength control sets how much and how fast.
+
+#include "correction_smoother.hpp"
+#include "pitch_graph.hpp"
+#include "pitch_tracker.hpp"
+#include "target_picker.hpp"
+
+#include <dsptb/dsp_common/pitch.hpp>
+#include <dsptb/dsp_common/psola.hpp>
+#include <dsptb/rt/spsc_ring.hpp>
+#include <dsptb/sdk.hpp>
+#include <dsptb/state_json.hpp>
+
+#include <algorithm>
+#include <atomic>
+#include <cmath>
+#include <cstdio>
+#include <memory>
+#include <vector>
+
+DSPTB_DEFINE_RT_GUARD();
+
+namespace dsptb::autotune {
+
+namespace dsp = dsptb::dsp;
+
+class Autotune final : public Processor<Autotune> {
+    enum Param : uint32_t { kStrength, kKeySource, kKey, kScale, kRefA4, kNoteHold, kVoiceRange, kSilenceDb, kShifterMode };
+    enum KeySource : int { kTrack, kManual };
+    enum ShifterMode : int { kAuto, kLive, kQuality };
+
+public:
+    static constexpr const char* kKeySources[] = {"Track", "Manual"};
+    static constexpr const char* kKeys[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    static constexpr const char* kScales[] = {"Major", "Minor", "Chromatic"};
+    static constexpr const char* kVoiceRanges[] = {"Full", "Low", "Mid", "High"};
+    static constexpr const char* kShifterModes[] = {"Auto", "Live", "Quality"};
+    static constexpr ModuleInfo info{.id = "org.dsptb.autotune",
+                                     .name = "Autotune",
+                                     .version = "0.1.0",
+                                     .vendor = "DSP Toolbox",
+                                     .description = "Pitch-correct a singing voice, with one Strength control.",
+                                     .caps = DSPTB_CAP_REALTIME | DSPTB_CAP_OFFLINE | DSPTB_CAP_HIDE_AUTO_PARAMS};
+    static constexpr auto params = dsptb::params(
+        Float("strength", "Strength", "%", 0.0f, 100.0f, 45.0f), Enum("key_source", "Key from", kKeySources, kTrack),
+        Enum("key", "Key", kKeys, 0), Enum("scale", "Scale", kScales, 2),
+        Float("ref_a4", "Reference A4", "Hz", 415.0f, 466.0f, 440.0f), Float("note_hold", "Note hold", "c", 0.0f, 50.0f, 30.0f),
+        Enum("voice_range", "Voice range", kVoiceRanges, 0), Float("silence_db", "Ignore below", "dB", -70.0f, -30.0f, -50.0f),
+        Enum("shifter_mode", "Shifter", kShifterModes, kAuto).hidden());
+
+    bool prepare(const PrepareInfo& p) override {
+        sampleRate_ = p.sampleRate;
+        const bool highRate = p.sampleRate > 60000.0;
+        hop_ = highRate ? 512u : 256u;
+
+        dsp::PitchConfig pitch;
+        pitch.frameSize = highRate ? 4096 : 2048;
+        pitch.hop = hop_;
+        pitch.minHz = 80.0;
+        pitch.maxHz = 1000.0;
+        yin_ = std::make_unique<dsp::YinPitch>(p.sampleRate, pitch);
+
+        // Latency must stay constant between prepares, so the mode is read only here.
+        const int mode = host().valid() ? static_cast<int>(host().getParam(kShifterMode) + 0.5f) : kAuto;
+        dsp::PsolaConfig psola;
+        psola.minHz = 80.0;
+        psola.maxHz = 1000.0;
+        psola.maxBlock = p.maxBlockFrames;
+        psola.mode = mode == kQuality || (mode == kAuto && p.offline) ? dsp::PsolaMode::Quality : dsp::PsolaMode::Live;
+        shifter_ = std::make_unique<dsp::PsolaShifter>(p.sampleRate, psola);
+
+        mono_.assign(p.maxBlockFrames, 0.0f);
+        out_.assign(p.maxBlockFrames, 0.0f);
+        smoother_.prepare(static_cast<float>(1000.0 * hop_ / p.sampleRate));
+        resetState();
+        return true;
+    }
+
+    uint32_t latencyFrames() const override { return shifter_ ? static_cast<uint32_t>(shifter_->latencyFrames()) : 0; }
+    // Live mode's delay wanders by up to one cycle of the lowest note on top of its fixed part.
+    uint32_t tailFrames() const override {
+        return latencyFrames() + static_cast<uint32_t>(std::ceil(sampleRate_ / 80.0));
+    }
+
+    void reset() override { resetState(); }
+
+    // Audio thread: no allocation, locks, I/O, logging or exceptions. Params via b.param(), the key via atomics, and
+    // graph frames are dropped when the ring is full.
+    void process(ProcessBlock& b) override {
+        const uint32_t n = b.frames();
+        const float* left = b.channel(0);
+        const float* right = b.numChannels() > 1 ? b.channel(1) : left;
+        for (uint32_t i = 0; i < n; ++i)
+            mono_[i] = 0.5f * (left[i] + right[i]);
+
+        // Split at hop ends, so a new estimate takes effect at the sample it was made from.
+        for (uint32_t done = 0; done < n;) {
+            const uint32_t len = std::min(n - done, samplesUntilHop_);
+            for (uint32_t i = 0; i < len; ++i)
+                hopEnergy_ += static_cast<double>(mono_[done + i]) * mono_[done + i];
+            samplesUntilHop_ -= len;
+            const bool hopEnds = samplesUntilHop_ == 0;
+            yin_->push(mono_.data() + done, len, [&](const dsp::PitchResult& r) {
+                onEstimate(b, r, b.transport().sample_clock + done + len);
+            });
+            if (hopEnds) {
+                samplesUntilHop_ = hop_;
+                hopEnergy_ = 0.0;
+            }
+            shifter_->process(mono_.data() + done, out_.data() + done, len, tracked_.voiced ? tracked_.f0Hz : 0.0f,
+                              smoother_.ratio());
+            done += len;
+        }
+        for (uint32_t c = 0; c < b.numChannels(); ++c)
+            std::copy_n(out_.data(), n, b.channel(c));
+    }
+
+    std::string saveState() override {
+        Json j;
+        j["ui"]["advancedOpen"] = advancedOpen_;
+        return dumpState(j);
+    }
+
+    bool loadState(std::string_view text) override {
+        const Json j = parseState(text);
+        if (j.contains("ui") && j["ui"].is_object())
+            advancedOpen_ = j["ui"].value("advancedOpen", false);
+        return true;
+    }
+
+    void draw(Canvas& c) override {
+        PitchFrame frame;
+        while (frames_.tryPop(frame)) {
+            graph_.push(frame);
+            latest_ = frame;
+        }
+        drawKeyRow(c);
+        drawNoteReadout(c);
+        graph_.draw(c, shownKey(), sampleRate_ > 0.0 ? sampleRate_ : 48000.0);
+        c.paramWidget(kStrength);
+        c.label("Low = natural. High = robotic.");
+        if (c.button(advancedOpen_ ? "v Advanced" : "> Advanced")) {
+            advancedOpen_ = !advancedOpen_;
+            host().markStateDirty("Show or hide Advanced");
+        }
+        if (advancedOpen_) {
+            c.paramWidget(kRefA4);
+            c.paramWidget(kNoteHold);
+            c.paramWidget(kVoiceRange);
+            c.paramWidget(kSilenceDb);
+        }
+    }
+
+private:
+    static constexpr float kRangeHz[4][2] = {{80.0f, 1000.0f}, {80.0f, 400.0f}, {130.0f, 700.0f}, {200.0f, 1000.0f}};
+
+    void resetState() {
+        if (yin_)
+            yin_->reset();
+        if (shifter_)
+            shifter_->reset();
+        tracker_.reset();
+        picker_.reset();
+        smoother_.reset();
+        tracked_ = {};
+        samplesUntilHop_ = hop_;
+        hopEnergy_ = 0.0;
+    }
+
+    DetectedKey detectedKey() const noexcept {
+        const uint32_t packed = detected_.load(std::memory_order_acquire);
+        DetectedKey d;
+        d.valid = (packed & 1u) != 0;
+        d.confident = (packed & 2u) != 0;
+        d.root = static_cast<int>((packed >> 8) & 15u);
+        d.scale = (packed & 4u) != 0 ? Scale::Minor : Scale::Major;
+        return d;
+    }
+
+    void onEstimate(ProcessBlock& b, const dsp::PitchResult& result, uint64_t clock) noexcept {
+        const int range = std::clamp(b.paramInt(kVoiceRange), 0, 3);
+        PitchTrackerConfig config;
+        config.minHz = kRangeHz[range][0];
+        config.maxHz = kRangeHz[range][1];
+        config.silenceDb = b.param(kSilenceDb);
+        config.refA4 = b.param(kRefA4);
+        const double power = hopEnergy_ / static_cast<double>(hop_);
+        const float hopDb = power > 1e-20 ? static_cast<float>(10.0 * std::log10(power)) : -200.0f;
+        tracked_ = tracker_.update(result.hz, result.voiced, hopDb, config);
+
+        const Key key = effectiveKey(b.paramInt(kKeySource) == kManual, std::clamp(b.paramInt(kKey), 0, 11),
+                                     static_cast<Scale>(std::clamp(b.paramInt(kScale), 0, 2)), detectedKey());
+        const int target = picker_.pick(tracked_.midi, tracked_.voiced, key, b.param(kNoteHold));
+        const float error = tracked_.voiced ? (static_cast<float>(target) - tracked_.midi) * 100.0f : 0.0f;
+        const float cents = smoother_.update(tracked_.voiced, error, b.param(kStrength));
+
+        PitchFrame frame;
+        frame.clock = clock;
+        frame.sungMidi = tracked_.midi;
+        frame.correctedMidi = tracked_.midi + cents / 100.0f;
+        frame.target = static_cast<int16_t>(target);
+        frame.voiced = tracked_.voiced ? 1 : 0;
+        frames_.tryPush(frame);
+    }
+
+    Key shownKey() const {
+        const Host& h = host();
+        const bool manual = static_cast<int>(h.getParam(kKeySource) + 0.5f) == kManual;
+        return effectiveKey(manual, static_cast<int>(h.getParam(kKey) + 0.5f),
+                            static_cast<Scale>(static_cast<int>(h.getParam(kScale) + 0.5f)), detectedKey());
+    }
+
+    void drawKeyRow(Canvas& c) {
+        const Host& h = host();
+        c.paramWidget(kKeySource);
+        const bool manual = static_cast<int>(h.getParam(kKeySource) + 0.5f) == kManual;
+        const DetectedKey detected = detectedKey();
+        int key = manual || !detected.valid ? static_cast<int>(h.getParam(kKey) + 0.5f) : detected.root;
+        int scale = manual || !detected.valid ? static_cast<int>(h.getParam(kScale) + 0.5f) : static_cast<int>(detected.scale);
+        const bool keyChanged = c.combo("Key", key, kKeys, 12);
+        const bool scaleChanged = c.combo("Scale", scale, kScales, 3);
+        if (keyChanged || scaleChanged) {
+            // Choosing a key by hand means the detected one was wrong, so stop following it.
+            h.setParam(kKey, static_cast<float>(key));
+            h.setParam(kScale, static_cast<float>(scale));
+            h.setParam(kKeySource, static_cast<float>(kManual));
+        }
+        if (!manual) {
+            c.label(!detected.valid        ? "No track loaded: using Chromatic"
+                    : detected.confident ? "Detected"
+                                         : "Not sure: using Chromatic");
+        } else if (detected.valid) {
+            char text[48];
+            std::snprintf(text, sizeof(text), "Use detected (%s %s)", kKeys[detected.root],
+                          detected.scale == Scale::Minor ? "minor" : "major");
+            if (c.button(text))
+                h.setParam(kKeySource, static_cast<float>(kTrack));
+        }
+    }
+
+    void drawNoteReadout(Canvas& c) const {
+        if (!latest_.voiced || latest_.target < 0) {
+            c.label("Note  -");
+            return;
+        }
+        const int cents = static_cast<int>(std::lround((latest_.sungMidi - static_cast<float>(latest_.target)) * 100.0f));
+        char text[48];
+        std::snprintf(text, sizeof(text), "Note  %s%d  %+d c", kKeys[latest_.target % 12], latest_.target / 12 - 1, cents);
+        c.label(text);
+    }
+
+    double sampleRate_ = 0.0;
+    uint32_t hop_ = 256;
+    std::unique_ptr<dsp::YinPitch> yin_;
+    std::unique_ptr<dsp::PsolaShifter> shifter_;
+    std::vector<float> mono_, out_;
+
+    // Audio thread only.
+    PitchTracker tracker_;
+    TargetPicker picker_;
+    CorrectionSmoother smoother_;
+    TrackedPitch tracked_;
+    uint32_t samplesUntilHop_ = 256;
+    double hopEnergy_ = 0.0;
+
+    // Key detection publishes one packed value, so a reader never sees half of a result.
+    std::atomic<uint32_t> detected_{0};
+    rt::SpscRing<PitchFrame> frames_{1024};
+
+    // UI thread only.
+    PitchGraph graph_;
+    PitchFrame latest_;
+    bool advancedOpen_ = false;
+};
+
+} // namespace dsptb::autotune
+
+using dsptb::autotune::Autotune;
+
+DSPTB_REGISTER_MODULES(Autotune);

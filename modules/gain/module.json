@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "org.dsptb.gain",
   "name": "Gain",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "abi": 1,
   "dll": "gain.dll",
   "modules": [

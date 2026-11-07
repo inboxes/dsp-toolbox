@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "org.dsptb.autotune",
+  "name": "Autotune",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "autotune.dll",
+  "modules": [
+    {"id": "org.dsptb.autotune", "kind": "processor"}
+  ],
+  "author": "DSP Toolbox",
+  "license": "GPL-3.0-only",
+  "description": "Pitch-correct a singing voice to the key of the backing track, with one Strength control. Output is mono on both channels.",
+  "minHostVersion": "0.3.0",
+  "paramHelp": {
+    "strength": "Low keeps the voice natural. High snaps every note: the robot effect.",
+    "key_source": "Track reads the key from the loaded file. Manual uses the Key and Scale you choose.",
+    "ref_a4": "The pitch of A4 for note names and correction. Most music uses 440 Hz.",
+    "note_hold": "How far past the halfway point you must sing before the target moves to the next note.",
+    "voice_range": "Limits which pitches count as singing. A narrower range avoids octave mistakes.",
+    "silence_db": "Anything quieter than this passes through uncorrected."
+  }
+}

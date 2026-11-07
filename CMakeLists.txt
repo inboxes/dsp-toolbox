@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(dsptb VERSION 0.2.0 LANGUAGES C CXX RC)
+project(dsptb VERSION 0.3.0 LANGUAGES C CXX RC)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
