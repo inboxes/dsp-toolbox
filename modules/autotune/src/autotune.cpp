@@ -40,7 +40,7 @@ public:
     static constexpr const char* kKeySources[] = {"Track", "Manual"};
     static constexpr const char* kKeys[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
     static constexpr const char* kScales[] = {"Major", "Minor", "Chromatic"};
-    static constexpr const char* kVoiceRanges[] = {"Full", "Low", "Mid", "High"};
+    static constexpr const char* kVoiceRanges[] = {"Full (E2-C6)", "Low (E2-E4)", "Mid (D3-F5)", "High (Bb3-C6)"};
     static constexpr const char* kShifterModes[] = {"Auto", "Live", "Quality"};
     static constexpr ModuleInfo info{.id = "org.dsptb.autotune",
                                      .name = "Autotune",
