@@ -100,6 +100,8 @@ void PsolaShifter::initState() noexcept {
     qualityRunning_ = false;
     qualityT0_ = 0.0;
     synthAnchorPending_ = false;
+    firstMarkPending_ = false;
+    grainsAdded_ = false;
     marksHead_ = 0;
     marksCount_ = 0;
     totalMarks_ = 0;
@@ -264,22 +266,29 @@ void PsolaShifter::liveAdvance(bool voiced, double t0, double ratio) noexcept {
 void PsolaShifter::qualityRestartVoiced(double t0) noexcept {
     std::fill(olaAcc_.begin(), olaAcc_.end(), 0.0);
     std::fill(olaWeight_.begin(), olaWeight_.end(), 0.0);
+    grainsAdded_ = false;
     marksHead_ = 0;
     marksCount_ = 0;
     totalMarks_ = 0;
     marksAbsBase_ = 0;
     synthMu_ = 0.0;
-    // First expected mark a quarter period ahead of the newest sample, so
-    // its +-0.25*T0 search window lies in the near future.
-    nextMarkExpected_ = static_cast<double>(inCount_ - 1) + 0.25 * t0;
+    // The first mark is searched over a whole period (+-0.5*T0) starting at
+    // the newest sample, so the grid locks onto the largest peak of a cycle
+    // whatever the onset phase. With a fixed +-0.25*T0 window from an
+    // arbitrary phase, an impulsive input (an LPC residual) could have every
+    // window miss its pulses, and the grains then alternated between cycles.
+    nextMarkExpected_ = static_cast<double>(inCount_ - 1) + 0.5 * t0;
+    firstMarkPending_ = true;
     synthAnchorPending_ = true; // synthesis grid anchors at the first mark
     qualityRunning_ = true;
 }
 
 void PsolaShifter::qualityFinaliseMarks(double t0) noexcept {
     const std::int64_t newest = inCount_ - 1;
-    const double quarter = 0.25 * t0;
-    while (nextMarkExpected_ + quarter <= static_cast<double>(newest)) {
+    while (true) {
+        const double quarter = (firstMarkPending_ ? 0.5 : 0.25) * t0;
+        if (nextMarkExpected_ + quarter > static_cast<double>(newest))
+            break;
         std::int64_t lo = static_cast<std::int64_t>(std::ceil(nextMarkExpected_ - quarter));
         std::int64_t hi = static_cast<std::int64_t>(std::floor(nextMarkExpected_ + quarter));
         if (lo < 0)
@@ -302,6 +311,11 @@ void PsolaShifter::qualityFinaliseMarks(double t0) noexcept {
             ++marksAbsBase_;
         }
         ++totalMarks_;
+        if (firstMarkPending_) {
+            // From here the grid runs from the peak just found.
+            firstMarkPending_ = false;
+            nextMarkExpected_ = static_cast<double>(best);
+        }
         if (synthAnchorPending_ && totalMarks_ >= 2) {
             // Anchor the synthesis walk at the SECOND mark, not the
             // first: the first search window is truncated by the
@@ -368,6 +382,7 @@ void PsolaShifter::qualityAddGrain(double synthPos, double t0) noexcept {
         const std::size_t slot = static_cast<std::size_t>(outIdx) & olaMask_;
         olaAcc_[slot] += w * v;
         olaWeight_[slot] += w;
+        grainsAdded_ = true;
     }
 }
 
@@ -445,8 +460,17 @@ float PsolaShifter::qualitySample(bool /*voiced*/, double t0, double ratio) noex
     const std::size_t slot = static_cast<std::size_t>(m) & olaMask_;
     const double w = olaWeight_[slot];
     float out = delayed; // spec step 4: below 1e-3 window sum, use the delayed input
-    if (w >= 1e-3)
+    if (ratio < 1.0 && grainsAdded_) {
+        // Lowering the pitch spaces the grains more than a period apart, so
+        // the gaps between them must stay quiet: the window sum is floored at
+        // 0.5, which still evens out partial overlaps (energy within 1 dB at
+        // ratio 0.84) but leaves the taper into a gap. Dividing by any sum
+        // undid the taper, and at ratio 0.5 (grains exactly on every other
+        // mark) gave back the input unshifted.
+        out = static_cast<float>(olaAcc_[slot] / std::max(w, 0.5));
+    } else if (w >= 1e-3) {
         out = static_cast<float>(olaAcc_[slot] / w);
+    }
     olaAcc_[slot] = 0.0;
     olaWeight_[slot] = 0.0;
     return out;

@@ -2,6 +2,7 @@
 
 #include <doctest/doctest.h>
 
+#include <dsptb/dsp_common/lpc.hpp>
 #include <dsptb/dsp_common/psola.hpp>
 
 #include "support/alloc_counter.hpp"
@@ -14,6 +15,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <stdexcept>
+#include <utility>
 #include <vector>
 
 using dsptb::dsp::PsolaConfig;
@@ -664,6 +666,94 @@ TEST_CASE("psola: reset() restores the freshly constructed state") {
         std::printf("[psola] reset %s: max diff vs fresh %.3g (want 0)\n",
                     mode == PsolaMode::Live ? "live" : "quality", d);
         CHECK(d == 0.0);
+    }
+}
+
+// Power (dB) of x at frequency f, Hann-windowed (Goertzel). Used to check
+// that the output's fundamental moved, without an estimator told the answer.
+static double powerAtDb(const float* x, std::size_t n, double fs, double f) {
+    double re = 0.0, im = 0.0;
+    for (std::size_t i = 0; i < n; ++i) {
+        const double h = 0.5 - 0.5 * std::cos(2.0 * 3.14159265358979323846 * static_cast<double>(i) /
+                                              static_cast<double>(n - 1));
+        const double w = 2.0 * 3.14159265358979323846 * f * static_cast<double>(i) / fs;
+        re += h * x[i] * std::cos(w);
+        im -= h * x[i] * std::sin(w);
+    }
+    return 10.0 * std::log10(re * re + im * im + 1e-30);
+}
+
+TEST_CASE("psola quality: an octave down really lands an octave down") {
+    // A 120 Hz saw is also periodic at 60 Hz, so this checks the new
+    // fundamental's energy directly: an unshifted saw has none at 60 Hz
+    // (about 70 dB below 120 Hz).
+    const auto in = makeSaw(kFs, 120.0, 0.5, 48000);
+    PsolaConfig cfg;
+    cfg.mode = PsolaMode::Quality;
+    cfg.minHz = 60.0;
+    PsolaShifter sh(kFs, cfg);
+    std::vector<float> out(in.size());
+    runConst(sh, in.data(), out.data(), in.size(), 120.0f, 0.5f);
+    const std::size_t skip = settleSkip(sh);
+    const double at60 = powerAtDb(out.data() + skip, in.size() - skip, kFs, 60.0);
+    const double at120 = powerAtDb(out.data() + skip, in.size() - skip, kFs, 120.0);
+    std::printf("[psola] quality ratio 0.5: 60 Hz %.1f dB vs 120 Hz %.1f dB\n", at60, at120);
+    CHECK(at60 > at120 - 20.0);
+}
+
+TEST_CASE("psola quality: an impulsive input shifts whatever the voicing onset phase") {
+    // The LPC residual of a vowel: sharp pulses with lobes either side. The
+    // first mark must lock onto a pulse, or every later +-T0/4 window can
+    // miss them (seen with the onset at 2048 samples: the output read as
+    // 60 Hz instead of 180).
+    const double f0 = 120.0;
+    const std::size_t n = 48000 * 2;
+    std::vector<float> vowel(n, 0.0f);
+    const auto period = static_cast<std::size_t>(std::lround(kFs / f0));
+    for (std::size_t i = 0; i < n; i += period)
+        vowel[i] = 1.0f;
+    for (const auto [hz, bw] : {std::pair{700.0, 80.0}, std::pair{1220.0, 90.0}, std::pair{2600.0, 120.0}}) {
+        const double r = std::exp(-3.14159265358979323846 * bw / kFs);
+        const double a1 = 2.0 * r * std::cos(2.0 * 3.14159265358979323846 * hz / kFs), a2 = -r * r;
+        double y1 = 0.0, y2 = 0.0;
+        for (float& s : vowel) {
+            const double y = (1.0 - a1 - a2) * s + a1 * y1 + a2 * y2;
+            y2 = y1;
+            y1 = y;
+            s = static_cast<float>(y);
+        }
+    }
+    std::vector<float> pulses(n);
+    dsptb::dsp::LpcVoiceModel lpc(kFs, dsptb::dsp::LpcConfig{});
+    for (std::size_t i = 0; i < n; i += 256) {
+        const std::size_t len = std::min<std::size_t>(256, n - i);
+        lpc.analyze(vowel.data() + i, pulses.data() + i, len);
+        std::vector<float> ignored(len);
+        lpc.synthesize(pulses.data() + i, ignored.data(), len);
+    }
+    for (const std::size_t onset : {std::size_t{0}, std::size_t{1024}, std::size_t{2048}, std::size_t{2300},
+                                     std::size_t{3072}}) {
+        PsolaConfig cfg;
+        cfg.mode = PsolaMode::Quality;
+        cfg.minHz = 60.0;
+        cfg.maxHz = 800.0;
+        PsolaShifter sh(kFs, cfg);
+        std::vector<float> out(n);
+        for (std::size_t i = 0; i < n; i += 256) {
+            const std::size_t len = std::min<std::size_t>(256, n - i);
+            const bool on = i >= onset;
+            sh.process(pulses.data() + i, out.data() + i, len, on ? static_cast<float>(f0) : 0.0f, on ? 1.5f : 1.0f);
+        }
+        // Grains that alternate between cycles put lines at every multiple
+        // of 60 Hz; a clean shift has them only at multiples of 180 Hz.
+        const std::size_t from = onset + 8192;
+        const double want = powerAtDb(out.data() + from, n - from, kFs, 180.0);
+        double sub = -300.0;
+        for (const double f : {60.0, 120.0, 240.0, 300.0, 420.0, 480.0})
+            sub = std::max(sub, powerAtDb(out.data() + from, n - from, kFs, f));
+        std::printf("[psola] impulsive onset %zu: 180 Hz %.1f dB vs strongest 60 Hz line %.1f dB\n", onset, want, sub);
+        INFO("onset ", onset);
+        CHECK(want > sub + 20.0);
     }
 }
 

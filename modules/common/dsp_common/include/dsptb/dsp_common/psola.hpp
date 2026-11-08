@@ -185,6 +185,8 @@ private:
     std::int64_t marksAbsBase_ = 0; // absolute index of marks_[marksHead_]
     bool qualityRunning_ = false;   // marks/synthesis active (voiced)
     bool synthAnchorPending_ = false; // synthesis grid not yet anchored at a mark
+    bool firstMarkPending_ = false;   // the first mark is searched over a whole period
+    bool grainsAdded_ = false;        // a grain has been overlap-added since the last restart
     double qualityT0_ = 0.0;        // most recent voiced period (fade-out tail)
 };
 
