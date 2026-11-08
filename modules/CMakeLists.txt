@@ -4,3 +4,13 @@ add_subdirectory(levelmeter)
 add_subdirectory(spatializer)
 add_subdirectory(analysis)
 add_subdirectory(autotune)
+
+# Any other module folder placed here (one not in this repo) builds too. `common` is added from the top level.
+set(dsptb_known_modules common gain spectrogram levelmeter spatializer analysis autotune)
+file(GLOB dsptb_module_children LIST_DIRECTORIES true "${CMAKE_CURRENT_SOURCE_DIR}/*")
+foreach(child IN LISTS dsptb_module_children)
+  get_filename_component(child_name "${child}" NAME)
+  if(IS_DIRECTORY "${child}" AND EXISTS "${child}/CMakeLists.txt" AND NOT child_name IN_LIST dsptb_known_modules)
+    add_subdirectory("${child_name}")
+  endif()
+endforeach()
