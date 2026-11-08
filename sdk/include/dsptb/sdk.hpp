@@ -8,6 +8,8 @@
 //   DSPTB_REGISTER_MODULES(Gain)    // generates dsptb_module_count / dsptb_module_get
 
 #include <cstddef>
+#include <filesystem>
+#include <string>
 
 #include "canvas.hpp"
 #include "dsp/db.hpp"
@@ -158,11 +160,41 @@ public:
         if (hasWorkingFileApi() && view.handle)
             api_->release_working_file(api_->host, api_->instance_token, &view);
     }
+    // Module data folder and param gestures (0.3.0 hosts). Older hosts: empty path, and gestures do nothing,
+    // so each setParam is its own undo step.
+    bool hasDataApi() const {
+        return api_ && api_->struct_size >= offsetof(dsptb_host_api, end_param_gesture) + sizeof(void*);
+    }
+    std::filesystem::path moduleDataDir() const {
+        if (!hasDataApi() || !api_->module_data_dir_utf8)
+            return {};
+        return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(api_->module_data_dir_utf8)));
+    }
+    void beginGesture(const char* undoLabel) const {
+        if (hasDataApi() && api_->begin_param_gesture)
+            api_->begin_param_gesture(api_->host, api_->instance_token, undoLabel);
+    }
+    void endGesture() const {
+        if (hasDataApi() && api_->end_param_gesture)
+            api_->end_param_gesture(api_->host, api_->instance_token);
+    }
     const char* hostVersion() const { return api_ ? api_->host_version : ""; }
     const dsptb_host_api* raw() const { return api_; }
 
 private:
     const dsptb_host_api* api_ = nullptr;
+};
+
+// Groups every setParam (and markStateDirty) in its lifetime into one undo step. UI thread.
+class ParamGesture {
+public:
+    ParamGesture(const Host& host, const char* undoLabel) : host_(host) { host_.beginGesture(undoLabel); }
+    ~ParamGesture() { host_.endGesture(); }
+    ParamGesture(const ParamGesture&) = delete;
+    ParamGesture& operator=(const ParamGesture&) = delete;
+
+private:
+    Host host_;
 };
 
 class WorkingFile {
