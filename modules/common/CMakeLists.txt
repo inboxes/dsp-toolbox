@@ -179,6 +179,7 @@ add_library(dsptb_dsp_common STATIC
     dsp_common/src/tuning.cpp
     dsp_common/src/pitch_spectrum.cpp
     dsp_common/src/tuning_estimator.cpp
+    dsp_common/src/voice_stats.cpp
     dsp_common/src/version.cpp)
 add_library(dsptb::dsp_common ALIAS dsptb_dsp_common)
 target_include_directories(dsptb_dsp_common
