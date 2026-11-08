@@ -3,9 +3,13 @@
 #include <dsptb/core/analysis.hpp>
 #include <dsptb/core/audio_io.hpp>
 #include <dsptb/core/signal_gen.hpp>
+#include <dsptb/dsp_common/voice_stats.hpp>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <tuple>
+#include <vector>
 
 namespace fs = std::filesystem;
 using namespace dsptb;
@@ -17,6 +21,77 @@ fs::path tempFile(const char* name) {
     return dir / name;
 }
 } // namespace
+
+// Median VTL of a mono signal: VoiceStats on 2048-frame windows every 1024, skipping quiet ones.
+float medianVtl(const std::vector<float>& mono, double sr) {
+    dsp::VoiceStats stats(sr);
+    const size_t n = stats.frameSize();
+    for (size_t at = 0; at + n <= mono.size(); at += n / 2) {
+        double e = 0.0;
+        for (size_t i = 0; i < n; ++i)
+            e += static_cast<double>(mono[at + i]) * mono[at + i];
+        if (std::sqrt(e / static_cast<double>(n)) > 0.01)
+            stats.pushFrame(mono.data() + at, 0.95f);
+    }
+    return stats.summary().vtlCmMedian;
+}
+
+std::vector<float> speakerMono(double vtl, double f0, const char* vowels, uint32_t seed = 1) {
+    GenParams p;
+    p.type = SignalType::Speaker;
+    p.vtlCm = vtl;
+    p.freq = f0;
+    p.vowels = vowels;
+    p.seconds = 6.0;
+    p.channels = 1;
+    p.seed = seed;
+    return generateSignal(p).samples;
+}
+
+TEST_CASE("generator: speaker has the requested tract length, its gaps, and is deterministic") {
+    for (const auto& [vtl, f0, vowels, tol] :
+         {std::tuple{17.0, 110.0, "schwa", 0.05}, std::tuple{14.0, 210.0, "schwa", 0.05},
+          std::tuple{17.0, 110.0, "mixed", 0.08}, std::tuple{14.0, 210.0, "mixed", 0.08}}) {
+        const std::vector<float> x = speakerMono(vtl, f0, vowels);
+        const float measured = medianVtl(x, 48000.0);
+        INFO(vtl, " cm, ", f0, " Hz, ", vowels, ": measured ", measured);
+        CHECK(std::fabs(measured - vtl) / vtl <= tol);
+    }
+    const std::vector<float> a = speakerMono(17.0, 110.0, "mixed");
+    CHECK(a == speakerMono(17.0, 110.0, "mixed"));
+    CHECK(a != speakerMono(17.0, 110.0, "mixed", 2)); // the seed drives the breath noise
+    // 100 ms of silence after every 4th vowel: 1.6 s to 1.7 s, minus the 10 ms fades.
+    for (size_t i = static_cast<size_t>(1.615 * 48000); i < static_cast<size_t>(1.685 * 48000); ++i)
+        REQUIRE(a[i] == 0.0f);
+}
+
+TEST_CASE("generator: vowel takes custom formants and a source tilt") {
+    GenParams p;
+    p.type = SignalType::Vowel;
+    p.freq = 110.0;
+    p.channels = 1;
+    p.seconds = 3.0;
+    p.formants = {514.7, 1544.1, 2573.5, 3602.9}; // the 17 cm tube
+    const std::vector<float> tube = generateSignal(p).samples;
+    CHECK(std::fabs(medianVtl(tube, 48000.0) - 17.0f) / 17.0f <= 0.05f);
+
+    // A -6 dB/oct tilt takes high harmonics down against low ones (energy above 2 kHz vs below 1 kHz).
+    const auto hiLo = [](const std::vector<float>& x) {
+        double hi = 0.0, lo = 0.0, yl = 0.0, yh = 0.0, prev = 0.0;
+        for (const float s : x) {
+            yl += 0.12 * (s - yl);       // one-pole low-pass ~1 kHz
+            yh = 0.75 * (yh + s - prev); // one-pole high-pass ~2 kHz
+            prev = s;
+            lo += yl * yl;
+            hi += yh * yh;
+        }
+        return 10.0 * std::log10(hi / lo);
+    };
+    const std::vector<float> flat = generateSignal(p).samples;
+    p.tiltDbOct = -6.0;
+    const std::vector<float> tilted = generateSignal(p).samples;
+    CHECK(hiLo(tilted) < hiLo(flat) - 6.0);
+}
 
 TEST_CASE("generator: 1 kHz sine at -6 dBFS measures -6.00 peak and -9.01 RMS") {
     GenParams p;

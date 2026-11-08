@@ -3,10 +3,11 @@
 #include "audio_buffer.hpp"
 
 #include <string>
+#include <vector>
 
 namespace dsptb {
 
-enum class SignalType { Sine, Noise, Pink, Impulse, Sweep, Clicks, Silence, Vowel, Chords };
+enum class SignalType { Sine, Noise, Pink, Impulse, Sweep, Clicks, Silence, Vowel, Chords, Speaker };
 
 bool parseSignalType(const std::string& name, SignalType& out);
 const char* signalTypeName(SignalType type);
@@ -19,8 +20,14 @@ const char* signalTypeName(SignalType type);
 //   sweep     logarithmic sine sweep freq -> freqEnd over the whole length, peak = dbfs
 //   clicks    single-sample impulses of amplitude dbfs every 60/bpm seconds, starting at t = 0
 //   silence   zeros
-//   vowel     a sung "ah": a band-limited pulse train at freq through resonators at 700, 1220 and 2600 Hz, peak =
-//             dbfs, with optional vibrato
+//   vowel     a sung "ah": a band-limited pulse train at freq through resonators at 700, 1220 and 2600 Hz
+//             (bandwidths 80, 90, 120 Hz), or at `formants` / `bandwidths` when given, peak = dbfs, with optional
+//             vibrato and a source tilt of tiltDbOct per octave
+//   speaker   a synthetic talker for voice tests: single-tube formants Fi = (2i-1)*35000/(4*vtlCm), i = 1..4,
+//             bandwidths 80/90/120/150 Hz; with `vowels` "mixed", five vowel patterns scale them in turn. A new
+//             vowel every 400 ms (50 ms crossfades), 100 ms of silence after every 4th. f0 = freq *
+//             2^((f0RangeSt/12) * sin(2*pi*0.3*t)). Breath noise at breathDb relative to the voiced source, through
+//             the same resonators. Peak = dbfs; deterministic from `seed`
 //   chords    sine triads with the root doubled an octave below, each tone at dbfs, for secondsPerChord each.
 //             `chords` is a comma list such as "Am,F#m,C". The length comes from the list, not `seconds`.
 struct GenParams {
@@ -38,6 +45,13 @@ struct GenParams {
     double vibratoCents = 0.0; // peak deviation
     std::string chords;
     double secondsPerChord = 1.0;
+    std::vector<double> formants;   // vowel: Hz; empty = 700, 1220, 2600
+    std::vector<double> bandwidths; // vowel: Hz, one per formant; empty = 80, 90, 120, 150 (as many as needed)
+    double tiltDbOct = 0.0;         // vowel, speaker: source tilt per octave of harmonic number
+    double vtlCm = 17.0;            // speaker
+    double f0RangeSt = 4.0;         // speaker: peak pitch swing
+    std::string vowels = "schwa";   // speaker: schwa or mixed
+    double breathDb = -30.0;        // speaker: breath noise relative to the voiced source
 };
 
 // True when `chords` is a non-empty comma list of roots (A to G, optional # or b) with an optional m.

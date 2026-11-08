@@ -83,14 +83,16 @@ void addDevicesCommand(CLI::App& app, int& exitCode) {
 
 void addGenCommand(CLI::App& app, int& exitCode) {
     auto* cmd =
-        app.add_subcommand("gen", "Generate a test signal: sine|noise|pink|impulse|sweep|clicks|silence|vowel|chords");
+        app.add_subcommand("gen",
+                           "Generate a test signal: sine|noise|pink|impulse|sweep|clicks|silence|vowel|chords|speaker");
     auto type = std::make_shared<std::string>();
     auto out = std::make_shared<std::string>();
     auto format = std::make_shared<std::string>("f32");
     auto p = std::make_shared<GenParams>();
     cmd->add_option("type", *type, "Signal type")->required();
     cmd->add_option("--out", *out, "Output WAV file")->required();
-    cmd->add_option("--freq", p->freq, "Frequency in Hz (sine; sweep start)")->capture_default_str();
+    cmd->add_option("--freq,--f0", p->freq, "Frequency in Hz (sine; sweep start; vowel and speaker pitch)")
+        ->capture_default_str();
     cmd->add_option("--freq-end", p->freqEnd, "Sweep end frequency in Hz")->capture_default_str();
     cmd->add_option("--dbfs", p->dbfs,
                     "Level in dBFS: peak for sine/impulse/sweep/clicks, RMS for noise/pink")
@@ -103,6 +105,16 @@ void addGenCommand(CLI::App& app, int& exitCode) {
     cmd->add_option("--seed", p->seed, "Noise seed")->capture_default_str();
     cmd->add_option("--vibrato-hz", p->vibratoHz, "Vowel vibrato rate")->capture_default_str();
     cmd->add_option("--vibrato-cents", p->vibratoCents, "Vowel vibrato depth, peak")->capture_default_str();
+    cmd->add_option("--formants", p->formants, "Vowel formants in Hz, comma list")->delimiter(',');
+    cmd->add_option("--bandwidths", p->bandwidths, "Vowel formant bandwidths in Hz, comma list")->delimiter(',');
+    cmd->add_option("--tilt-db-oct", p->tiltDbOct, "Vowel and speaker source tilt, dB per octave")
+        ->capture_default_str();
+    cmd->add_option("--vtl-cm", p->vtlCm, "Speaker vocal-tract length")->capture_default_str();
+    cmd->add_option("--f0-range-st", p->f0RangeSt, "Speaker pitch swing, semitones")->capture_default_str();
+    cmd->add_option("--vowels", p->vowels, "Speaker vowels: schwa or mixed")
+        ->check(CLI::IsMember({"schwa", "mixed"}))
+        ->capture_default_str();
+    cmd->add_option("--breath-db", p->breathDb, "Speaker breath noise relative to the voice")->capture_default_str();
     cmd->add_option("--chords", p->chords, "Chord list such as Am,Dm,E,Am");
     cmd->add_option("--seconds-per-chord", p->secondsPerChord, "Length of each chord")->capture_default_str();
     cmd->add_option("--format", *format, "f32 (default), s24 or s16");

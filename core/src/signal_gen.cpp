@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <sstream>
 #include <vector>
 
@@ -54,7 +55,7 @@ bool parseSignalType(const std::string& name, SignalType& out) {
     } kTypes[] = {{"sine", SignalType::Sine},      {"noise", SignalType::Noise},
                   {"pink", SignalType::Pink},      {"impulse", SignalType::Impulse},
                   {"sweep", SignalType::Sweep},    {"clicks", SignalType::Clicks},
-                  {"silence", SignalType::Silence},  {"vowel", SignalType::Vowel},
+                  {"silence", SignalType::Silence},  {"vowel", SignalType::Vowel}, {"speaker", SignalType::Speaker},
                   {"chords", SignalType::Chords}};
     for (const auto& e : kTypes)
         if (name == e.n) {
@@ -98,43 +99,141 @@ bool parseChords(const std::string& list, std::vector<Chord>& out) {
     return !out.empty();
 }
 
-void generateVowel(const GenParams& p, double amp, double sr, std::vector<double>& mono) {
+constexpr double kDefaultBandwidths[] = {80.0, 90.0, 120.0, 150.0};
+
+double bandwidthFor(const std::vector<double>& given, size_t i) {
+    if (i < given.size())
+        return given[i];
+    return kDefaultBandwidths[std::min<size_t>(i, std::size(kDefaultBandwidths) - 1)];
+}
+
+// A two-pole resonator with unit gain at DC, run in place.
+struct Resonator {
+    double a1 = 0.0, a2 = 0.0, g = 1.0, y1 = 0.0, y2 = 0.0;
+    Resonator(double hz, double bw, double sr) {
+        const double r = std::exp(-kPi * bw / sr);
+        a1 = 2.0 * r * std::cos(2.0 * kPi * hz / sr);
+        a2 = -r * r;
+        g = 1.0 - a1 - a2;
+    }
+    double step(double x) {
+        const double y = g * x + a1 * y1 + a2 * y2;
+        y2 = y1;
+        y1 = y;
+        return y;
+    }
+};
+
+// Band-limited pulse train following f0(t), each harmonic k weighted by k^(tilt/6.02) (tilt dB per octave).
+// Harmonics are counted per sample, so a pitch change can't push one past the limit and alias.
+template <class F0>
+void pulseTrain(F0 f0At, double tiltDbOct, double sr, std::vector<double>& mono) {
     const double nyquistLimit = 0.45 * sr;
+    const double expo = tiltDbOct / (20.0 * std::log10(2.0));
+    std::vector<double> weight(1, 0.0);
     double phase = 0.0;
     for (size_t n = 0; n < mono.size(); ++n) {
-        const double t = static_cast<double>(n) / sr;
-        const double cents = p.vibratoCents * std::sin(2.0 * kPi * p.vibratoHz * t);
-        const double f = p.freq * std::pow(2.0, cents / 1200.0);
-        // Harmonics are counted per sample, so vibrato can't push one past the limit and alias.
+        const double f = f0At(static_cast<double>(n) / sr);
         const int harmonics = std::max(1, static_cast<int>(nyquistLimit / f));
-        double x = 0.0;
-        for (int k = 1; k <= harmonics; ++k)
-            x += std::cos(phase * k);
-        mono[n] = x / harmonics;
+        while (static_cast<int>(weight.size()) <= harmonics)
+            weight.push_back(std::pow(static_cast<double>(weight.size()), expo));
+        double x = 0.0, norm = 0.0;
+        for (int k = 1; k <= harmonics; ++k) {
+            x += weight[static_cast<size_t>(k)] * std::cos(phase * k);
+            norm += weight[static_cast<size_t>(k)];
+        }
+        mono[n] = x / norm;
         phase += 2.0 * kPi * f / sr;
         if (phase > 2.0 * kPi)
             phase -= 2.0 * kPi;
     }
-    static constexpr double kFormants[][2] = {{700.0, 80.0}, {1220.0, 90.0}, {2600.0, 120.0}};
-    for (const auto& formant : kFormants) {
-        const double r = std::exp(-kPi * formant[1] / sr);
-        const double a1 = 2.0 * r * std::cos(2.0 * kPi * formant[0] / sr);
-        const double a2 = -r * r;
-        const double g = 1.0 - a1 - a2;
-        double y1 = 0.0, y2 = 0.0;
-        for (double& s : mono) {
-            const double y = g * s + a1 * y1 + a2 * y2;
-            y2 = y1;
-            y1 = y;
-            s = y;
-        }
-    }
+}
+
+void normalisePeak(double amp, std::vector<double>& mono) {
     double peak = 0.0;
     for (const double s : mono)
         peak = std::max(peak, std::fabs(s));
     if (peak > 0.0)
         for (double& s : mono)
             s *= amp / peak;
+}
+
+void generateVowel(const GenParams& p, double amp, double sr, std::vector<double>& mono) {
+    pulseTrain(
+        [&](double t) {
+            const double cents = p.vibratoCents * std::sin(2.0 * kPi * p.vibratoHz * t);
+            return p.freq * std::pow(2.0, cents / 1200.0);
+        },
+        p.tiltDbOct, sr, mono);
+    const std::vector<double> formants =
+        p.formants.empty() ? std::vector<double>{700.0, 1220.0, 2600.0} : p.formants;
+    for (size_t i = 0; i < formants.size(); ++i) {
+        Resonator res(formants[i], bandwidthFor(p.bandwidths, i), sr);
+        for (double& s : mono)
+            s = res.step(s);
+    }
+    normalisePeak(amp, mono);
+}
+
+// gen speaker: see signal_gen.hpp.
+void generateSpeaker(const GenParams& p, double amp, double sr, std::vector<double>& mono) {
+    const size_t frames = mono.size();
+    std::vector<double> source(frames);
+    pulseTrain(
+        [&](double t) { return p.freq * std::pow(2.0, p.f0RangeSt / 12.0 * std::sin(2.0 * kPi * 0.3 * t)); },
+        p.tiltDbOct, sr, source);
+    double rms = 0.0;
+    for (const double s : source)
+        rms += s * s;
+    rms = std::sqrt(rms / std::max<size_t>(1, frames));
+    // Breath: uniform noise scaled to breathDb below the voiced source's RMS (uniform RMS = 1/sqrt(3)).
+    uint32_t state = p.seed * 747796405u + 2891336453u;
+    const double breath = rms * std::pow(10.0, p.breathDb / 20.0) * std::sqrt(3.0);
+    for (double& s : source) {
+        state = state * 1664525u + 1013904223u;
+        s += breath * (static_cast<double>(state) / 2147483648.0 - 1.0);
+    }
+
+    // "mixed" cycles /a/ /i/ /u/ /e/ /o/, each a factor on the schwa formants.
+    static constexpr double kMixed[5][4] = {
+        {1.4, 0.8, 1.0, 1.0}, {0.55, 1.45, 1.2, 1.0}, {0.6, 0.6, 1.0, 1.0}, {0.9, 1.25, 1.05, 1.0}, {1.0, 0.7, 1.0, 1.0},
+    };
+    const bool mixed = p.vowels == "mixed";
+    const size_t patterns = mixed ? 5 : 1;
+    // Every pattern filters the whole source with its own resonators, so crossfading them is click-free.
+    std::vector<std::vector<double>> filtered(patterns, source);
+    for (size_t v = 0; v < patterns; ++v)
+        for (int i = 0; i < 4; ++i) {
+            const double schwa = (2.0 * (i + 1) - 1.0) * 35000.0 / (4.0 * p.vtlCm);
+            const double hz = std::min(schwa * (mixed ? kMixed[v][i] : 1.0), 0.45 * sr);
+            Resonator res(hz, kDefaultBandwidths[i], sr);
+            for (double& s : filtered[v])
+                s = res.step(s);
+        }
+
+    constexpr double kVowel = 0.4, kFade = 0.05, kGap = 0.1, kEdge = 0.01;
+    constexpr double kCycle = 4.0 * kVowel + kGap;
+    for (size_t n = 0; n < frames; ++n) {
+        const double t = static_cast<double>(n) / sr;
+        const double cycle = std::floor(t / kCycle);
+        const double pos = t - cycle * kCycle;
+        if (pos >= 4.0 * kVowel) {
+            mono[n] = 0.0;
+            continue;
+        }
+        const int inCycle = static_cast<int>(pos / kVowel);
+        const double local = pos - inCycle * kVowel;
+        const size_t vowel = (static_cast<size_t>(cycle) * 4 + static_cast<size_t>(inCycle)) % patterns;
+        const size_t previous = (static_cast<size_t>(cycle) * 4 + static_cast<size_t>(inCycle) + patterns - 1) % patterns;
+        // Crossfade from the previous vowel at each change inside a cycle; fade in and out around the gaps.
+        const double w = (inCycle > 0 && local < kFade) ? local / kFade : 1.0;
+        double s = w * filtered[vowel][n] + (1.0 - w) * filtered[previous][n];
+        const double edge = std::min(pos, 4.0 * kVowel - pos);
+        if (edge < kEdge)
+            s *= edge / kEdge;
+        mono[n] = s;
+    }
+    normalisePeak(amp, mono);
 }
 
 void generateChords(const std::vector<Chord>& chords, double amp, double sr, double secondsPerChord,
@@ -182,6 +281,8 @@ const char* signalTypeName(SignalType type) {
         return "silence";
     case SignalType::Vowel:
         return "vowel";
+    case SignalType::Speaker:
+        return "speaker";
     case SignalType::Chords:
         return "chords";
     }
@@ -261,6 +362,9 @@ PcmAudio generateSignal(const GenParams& p) {
         break;
     case SignalType::Vowel:
         generateVowel(p, amp, sr, mono);
+        break;
+    case SignalType::Speaker:
+        generateSpeaker(p, amp, sr, mono);
         break;
     case SignalType::Chords: {
         std::vector<Chord> chords;
