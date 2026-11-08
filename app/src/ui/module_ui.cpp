@@ -735,6 +735,9 @@ void drawInstancePanels(ShellContext& ctx) {
         ImGui::SetNextWindowSize(ImVec2(380.0f * s, 280.0f * s), ImGuiCond_FirstUseEver);
         const bool visible = ImGui::Begin(title.c_str(), &open);
         ctx.moduleUi.panelOpen[id] = open;
+        if (!open || !visible)
+            ctx.model->endGestureOf(id); // a panel that stops drawing can't finish a drag
+
         if (visible) {
             ModuleInstance& m = *rec->instance;
             const bool faulted = m.faulted();

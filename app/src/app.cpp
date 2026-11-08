@@ -154,7 +154,7 @@ void printUsage() {
         "    --session <file>          session to load first\n"
         "  --null-audio                force the null audio backend (no audio backend yet; accepted)\n"
         "  --ui-scale <100|125|150|200>  override the UI scale (test modes)\n"
-        "  --test-action reset|undock:<Panel>|notice:<text>|tone|play|mouse:X:Y|loop:A:B|seek:S|source:mic|source:micwithtrack  test "
+        "  --test-action reset|undock:<Panel>|notice:<text>|tone|play|mouse:X:Y|drag:X0,Y0,X1,Y1|undo|loop:A:B|seek:S|source:mic|source:micwithtrack  test "
         "modes: trigger a UI action at frame 20 "
         "(repeatable)\n"
         "  --use-settings              test modes: read (never write) the user's settings.json\n"
@@ -481,6 +481,14 @@ int run(HINSTANCE instance, const Options& opt) {
     int exitCode = 0;
     bool running = true;
     std::optional<ImVec2> testMouse;
+    // drag:x0,y0,x1,y1 presses at the start, moves over kDragFrames frames, then releases. Later test
+    // actions wait until it's done.
+    struct TestDrag {
+        bool active = false;
+        ImVec2 from, to;
+        int frame = 0;
+    } testDrag;
+    constexpr int kDragFrames = 12;
     bool closeSent = false;
     const auto loopStart = std::chrono::steady_clock::now();
     while (running) {
@@ -512,8 +520,22 @@ int run(HINSTANCE instance, const Options& opt) {
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
-        if (testMouse) // after the backend, which queues the real cursor; the last event wins
+        if (testDrag.active) {
+            // Frame 0 moves to the start, 1 presses, 2..kDragFrames move, then one more frame releases.
+            const int f = testDrag.frame++;
+            const float t = std::clamp(static_cast<float>(f - 1) / static_cast<float>(kDragFrames - 1), 0.0f, 1.0f);
+            testMouse = ImVec2(testDrag.from.x + (testDrag.to.x - testDrag.from.x) * t,
+                               testDrag.from.y + (testDrag.to.y - testDrag.from.y) * t);
             ImGui::GetIO().AddMousePosEvent(testMouse->x, testMouse->y);
+            if (f == 1)
+                ImGui::GetIO().AddMouseButtonEvent(0, true);
+            if (f == kDragFrames + 1) {
+                ImGui::GetIO().AddMouseButtonEvent(0, false);
+                testDrag.active = false;
+            }
+        } else if (testMouse) { // after the backend, which queues the real cursor; the last event wins
+            ImGui::GetIO().AddMousePosEvent(testMouse->x, testMouse->y);
+        }
         ImGui::NewFrame();
 
         {
@@ -566,7 +588,7 @@ int run(HINSTANCE instance, const Options& opt) {
             audio->engine().play();
         }
         // Scripted UI actions for screenshots and tests: one per frame, waiting for a file load to finish.
-        if (testMode && frame >= 20 && nextTestAction < opt.testActions.size() && !audio->loading() &&
+        if (testMode && frame >= 20 && !testDrag.active && nextTestAction < opt.testActions.size() && !audio->loading() &&
             !(waitingForTestFile && !audio->file())) {
             waitingForTestFile = false;
             const std::string& action = opt.testActions[nextTestAction++];
@@ -585,6 +607,12 @@ int run(HINSTANCE instance, const Options& opt) {
                 waitingForTestFile = true;
             } else if (action == "play") {
                 audio->engine().play();
+            } else if (action.rfind("drag:", 0) == 0) {
+                float x0 = 0.0f, y0 = 0.0f, x1 = 0.0f, y1 = 0.0f;
+                if (std::sscanf(action.c_str() + 5, "%f,%f,%f,%f", &x0, &y0, &x1, &y1) == 4)
+                    testDrag = TestDrag{true, ImVec2(x0, y0), ImVec2(x1, y1), 0};
+            } else if (action == "undo") {
+                model->undo();
             } else if (action.rfind("mouse:", 0) == 0) {
                 float x = 0.0f, y = 0.0f;
                 if (std::sscanf(action.c_str() + 6, "%f:%f", &x, &y) == 2)
