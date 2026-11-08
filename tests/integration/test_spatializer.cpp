@@ -626,6 +626,9 @@ TEST_CASE("spatializer: a set in the user data folder loads, also with a non-ASC
     fs::create_directories(data / "hrtf");
     fs::copy_file(sadie, data / "hrtf" / "my-set.sofa");
     fs::copy_file(sadie, data / "hrtf" / fs::path(u8"gr\u00f6\u00dfe.sofa"));
+    // Restore the test run's own data folder afterwards (test_main sets it).
+    wchar_t previous[MAX_PATH * 2] = {};
+    GetEnvironmentVariableW(L"DSPTB_DATA_DIR", previous, static_cast<DWORD>(std::size(previous)));
     REQUIRE(SetEnvironmentVariableW(L"DSPTB_DATA_DIR", data.c_str()));
 
     const AudioBuffer in = noise(SignalType::Noise, 2.0);
@@ -637,7 +640,7 @@ TEST_CASE("spatializer: a set in the user data folder loads, also with a non-ASC
     const AudioBuffer packaged = out("mid-sadie-d1"), builtin = out("builtin");
     const AudioBuffer user = out("custom/my-set");
     const AudioBuffer accented = out(reinterpret_cast<const char*>(u8"custom/gr\u00f6\u00dfe"));
-    SetEnvironmentVariableW(L"DSPTB_DATA_DIR", nullptr);
+    SetEnvironmentVariableW(L"DSPTB_DATA_DIR", previous[0] ? previous : nullptr);
     fs::remove_all(data, ec);
 
     // An unknown set would fall back to the built-in HRTF, so matching SADIE proves the user file was used.
