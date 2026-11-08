@@ -73,7 +73,7 @@ public:
             pitch.hop = hop_;
             // The longest period a frame can measure is half its length.
             pitch.minHz = k == 0 ? 80.0 : p.sampleRate / static_cast<double>(pitch.frameSize / 2) * 1.001;
-            pitch.maxHz = 1000.0;
+            pitch.maxHz = 1100.0; // above C6, the top of the High range
             yin_[k] = std::make_unique<dsp::YinPitch>(p.sampleRate, pitch);
             minHz_[k] = static_cast<float>(pitch.minHz);
         }
@@ -82,7 +82,7 @@ public:
         const int mode = host().valid() ? static_cast<int>(host().getParam(kShifterMode) + 0.5f) : kAuto;
         dsp::PsolaConfig psola;
         psola.minHz = 80.0;
-        psola.maxHz = 1000.0;
+        psola.maxHz = 1100.0;
         psola.maxBlock = p.maxBlockFrames;
         psola.mode = mode == kQuality || (mode == kAuto && p.offline) ? dsp::PsolaMode::Quality : dsp::PsolaMode::Live;
         shifter_ = std::make_unique<dsp::PsolaShifter>(p.sampleRate, psola);
@@ -185,7 +185,10 @@ public:
     }
 
 private:
-    static constexpr float kRangeHz[4][2] = {{80.0f, 1000.0f}, {80.0f, 400.0f}, {130.0f, 700.0f}, {200.0f, 1000.0f}};
+    // Full, Low E2-E4, Mid D3-F5, High Bb3-C6 (Full spans them all). Each edge sits half a semitone outside its
+    // note, so a slightly flat or sharp end note isn't folded an octave.
+    static constexpr float kRangeHz[4][2] = {
+        {80.06f, 1077.2f}, {80.06f, 339.3f}, {142.65f, 718.9f}, {226.44f, 1077.2f}};
 
     void resetState() {
         for (size_t k = 0; k < kDetectors; ++k) {
