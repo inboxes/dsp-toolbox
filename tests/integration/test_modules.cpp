@@ -549,6 +549,55 @@ TEST_CASE("undo/redo: parameter edits, with a 100-step history") {
     CHECK_FALSE(rig.model.undo());
 }
 
+TEST_CASE("param gestures: one undo step per gesture; the data folder exists before create()") {
+    ModelRig rig;
+    const InstanceId g = rig.add("org.dsptb.gain");
+    ModuleInstance& m = *rig.model.find(g)->instance;
+    ParamBlock& p = m.params();
+
+    // The host made <dataDir>/module-data/<id> and handed it over.
+    const char* dir = m.hostApi().module_data_dir_utf8;
+    REQUIRE(dir != nullptr);
+    CHECK(fs::is_directory(fs::path(reinterpret_cast<const char8_t*>(dir))));
+    CHECK(fs::path(reinterpret_cast<const char8_t*>(dir)).filename() == "org.dsptb.gain");
+
+    // A drag across two params is one step, labelled, undone and redone together.
+    rig.model.moduleBeginGesture(m, "Move point");
+    for (float v : {-1.0f, -4.0f, -8.0f}) {
+        rig.model.moduleSetParam(m, 0, v);
+        rig.model.moduleSetParam(m, 1, 1.0f);
+        CHECK(p.get(0) == v); // values apply at once
+    }
+    rig.model.moduleEndGesture(m);
+    CHECK(rig.model.undoLabel() == "Move point");
+    CHECK(rig.model.undo());
+    CHECK(p.get(0) == 0.0f);
+    CHECK(p.get(1) == 0.0f);
+    CHECK_FALSE(rig.model.canUndo());
+    CHECK(rig.model.redo());
+    CHECK(p.get(0) == -8.0f);
+    CHECK(p.get(1) == 1.0f);
+
+    // A gesture that ends where it started records nothing; a second begin ends the first.
+    rig.model.moduleBeginGesture(m, "Wiggle");
+    rig.model.moduleSetParam(m, 0, -2.0f);
+    rig.model.moduleSetParam(m, 0, -8.0f);
+    rig.model.moduleBeginGesture(m, "Second");
+    rig.model.moduleSetParam(m, 0, -3.0f);
+    rig.model.endGestureOf(g);
+    CHECK(rig.model.undoLabel() == "Second");
+    CHECK(rig.model.undo());
+    CHECK(p.get(0) == -8.0f);
+    CHECK(rig.model.undoLabel() == "Move point");
+
+    // Removing the instance ends its gesture.
+    rig.model.moduleBeginGesture(m, "Left open");
+    rig.model.moduleSetParam(m, 0, -5.0f);
+    rig.engine.stop();
+    rig.model.remove(g);
+    CHECK(rig.model.undoLabel() == "Left open");
+}
+
 // ----------------------------------------------------------------------------------------------------------
 // CLI
 // ----------------------------------------------------------------------------------------------------------

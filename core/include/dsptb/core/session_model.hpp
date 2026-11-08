@@ -124,6 +124,17 @@ public:
     void moduleLog(ModuleInstance& who, dsptb_log_level level, const char* utf8) override;
     void moduleSetParam(ModuleInstance& who, uint32_t index, float value) override;
     void moduleMarkStateDirty(ModuleInstance& who, const char* undoLabel) override;
+    // <dataDir>/module-data/<module id>
+    std::filesystem::path moduleDataDir(const std::string& moduleId) override;
+    void moduleBeginGesture(ModuleInstance& who, const char* undoLabel) override;
+    void moduleEndGesture(ModuleInstance& who) override;
+    // Ends an open gesture (undo, redo, removing its instance, or the UI closing the panel).
+    void endGesture();
+    // Ends the open gesture only if it belongs to this instance.
+    void endGestureOf(InstanceId id) {
+        if (gesture_.open && gesture_.id == id)
+            endGesture();
+    }
     uint64_t workingFileGeneration() const override { return workingFile_.generation(); }
     std::shared_ptr<const AudioBuffer> acquireWorkingFile(uint64_t& generation) override {
         return workingFile_.acquire(generation);
@@ -142,6 +153,14 @@ private:
         float oldValue = 0.0f, newValue = 0.0f;
         std::string oldState, newState;
         std::string label;
+        std::vector<UndoStep> group; // a gesture: these steps undo and redo together
+    };
+    // The gesture in progress: its changes so far, merged per parameter.
+    struct OpenGesture {
+        bool open = false;
+        InstanceId id = 0;
+        std::string label;
+        std::vector<UndoStep> steps;
     };
 
     bool engineLive() const { return engine_.isRunning(); }
@@ -165,6 +184,7 @@ private:
     bool reorderPending_ = false;
     double reorderAt_ = 0.0;
     std::deque<UndoStep> undo_, redo_;
+    OpenGesture gesture_;
     WorkingFileSlot workingFile_;
 };
 

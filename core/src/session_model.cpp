@@ -1,5 +1,7 @@
 #include "dsptb/core/session_model.hpp"
 
+#include "dsptb/core/paths.hpp"
+
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -141,6 +143,7 @@ std::vector<SessionInstanceDoc> SessionModel::capture() const {
 
 void SessionModel::clear() {
     placeholders_.clear();
+    gesture_ = OpenGesture{};
     undo_.clear();
     redo_.clear();
     std::vector<InstanceId> ids;
@@ -261,6 +264,8 @@ bool SessionModel::remove(InstanceId id) {
     InstanceRecord* rec = find(id);
     if (!rec || rec->removing)
         return false;
+    if (gesture_.open && gesture_.id == id)
+        endGesture();
     if (!rec->isProcessor()) {
         // No audio goes through an analyzer or offline module, so there is nothing to ramp. A ring stays alive
         // in the snapshots that still mention it until the audio thread has retired them.
@@ -459,6 +464,15 @@ void SessionModel::setParamUndoable(InstanceId id, uint32_t index, float value) 
 }
 
 void SessionModel::applyStep(const UndoStep& s, bool forward) {
+    if (!s.group.empty()) {
+        if (forward)
+            for (const UndoStep& part : s.group)
+                applyStep(part, true);
+        else
+            for (auto it = s.group.rbegin(); it != s.group.rend(); ++it)
+                applyStep(*it, false);
+        return;
+    }
     InstanceRecord* rec = find(s.id);
     if (!rec || !rec->instance)
         return;
@@ -472,6 +486,7 @@ void SessionModel::applyStep(const UndoStep& s, bool forward) {
 }
 
 bool SessionModel::undo() {
+    endGesture();
     while (!undo_.empty()) {
         UndoStep s = std::move(undo_.back());
         undo_.pop_back();
@@ -485,6 +500,7 @@ bool SessionModel::undo() {
 }
 
 bool SessionModel::redo() {
+    endGesture();
     while (!redo_.empty()) {
         UndoStep s = std::move(redo_.back());
         redo_.pop_back();
@@ -506,7 +522,26 @@ void SessionModel::moduleLog(ModuleInstance& who, dsptb_log_level level, const c
 }
 
 void SessionModel::moduleSetParam(ModuleInstance& who, uint32_t index, float value) {
-    setParamUndoable(who.id(), index, value);
+    if (!(gesture_.open && gesture_.id == who.id())) {
+        setParamUndoable(who.id(), index, value);
+        return;
+    }
+    if (index >= who.params().size())
+        return;
+    const float before = who.params().get(index);
+    const float after = who.params().set(index, value);
+    // Merge into the gesture: keep the value from before it started, update the latest.
+    for (UndoStep& s : gesture_.steps)
+        if (!s.isState && s.index == index) {
+            s.newValue = after;
+            return;
+        }
+    UndoStep s;
+    s.id = who.id();
+    s.index = index;
+    s.oldValue = before;
+    s.newValue = after;
+    gesture_.steps.push_back(std::move(s));
 }
 
 void SessionModel::moduleMarkStateDirty(ModuleInstance& who, const char* label) {
@@ -523,7 +558,55 @@ void SessionModel::moduleMarkStateDirty(ModuleInstance& who, const char* label) 
     s.newState = now;
     s.label = (label && *label) ? label : "Change state";
     rec->lastState = now;
+    if (gesture_.open && gesture_.id == who.id()) {
+        for (UndoStep& g : gesture_.steps)
+            if (g.isState) {
+                g.newState = s.newState;
+                return;
+            }
+        gesture_.steps.push_back(std::move(s));
+        return;
+    }
     pushUndo(std::move(s));
+}
+
+std::filesystem::path SessionModel::moduleDataDir(const std::string& moduleId) {
+    return dataDir() / "module-data" / std::filesystem::path(moduleId);
+}
+
+void SessionModel::moduleBeginGesture(ModuleInstance& who, const char* label) {
+    endGesture(); // no nesting: a second begin ends the first
+    gesture_.open = true;
+    gesture_.id = who.id();
+    gesture_.label = (label && *label) ? label : "Change";
+}
+
+void SessionModel::moduleEndGesture(ModuleInstance& who) {
+    if (gesture_.open && gesture_.id == who.id())
+        endGesture();
+}
+
+void SessionModel::endGesture() {
+    if (!gesture_.open)
+        return;
+    OpenGesture g = std::move(gesture_);
+    gesture_ = OpenGesture{};
+    // A param set back to where it started is no change.
+    std::erase_if(g.steps, [](const UndoStep& s) {
+        return s.isState ? s.oldState == s.newState : s.oldValue == s.newValue;
+    });
+    if (g.steps.empty())
+        return;
+    if (g.steps.size() == 1) {
+        g.steps.front().label = g.label;
+        pushUndo(std::move(g.steps.front()));
+        return;
+    }
+    UndoStep step;
+    step.id = g.id;
+    step.label = g.label;
+    step.group = std::move(g.steps);
+    pushUndo(std::move(step));
 }
 
 } // namespace dsptb

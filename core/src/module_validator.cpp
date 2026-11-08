@@ -148,6 +148,20 @@ std::shared_ptr<ModuleInstance> make(ModulePackage& pkg, const dsptb_module_desc
 bool lifecycle(ModulePackage& pkg, const dsptb_module_desc& d, double sr, uint32_t maxBlock,
                std::string& why, bool withFile = false) {
     SimpleModuleHost host;
+    // "With" runs offer everything a 0.3.0 host does; the others offer neither a file nor a data folder.
+    struct TempRoot {
+        std::filesystem::path path;
+        ~TempRoot() {
+            std::error_code ec;
+            if (!path.empty())
+                std::filesystem::remove_all(path, ec);
+        }
+    } dataRoot;
+    if (withFile) {
+        dataRoot.path = std::filesystem::temp_directory_path() /
+                        ("dsptb-validate-" + std::to_string(GetCurrentProcessId()));
+        host.setDataRoot(dataRoot.path);
+    }
     if (withFile) { // a module that reads the working file must cope with one appearing at any time
         auto file = std::make_shared<AudioBuffer>();
         file->sampleRate = static_cast<uint32_t>(sr);
@@ -212,7 +226,8 @@ void checkProcessor(ModulePackage& pkg, const dsptb_module_desc& d, std::vector<
                 for (const bool withFile : {false, true})
                     if (failure.empty() && !lifecycle(pkg, d, sr, block, why, withFile))
                         failure = std::to_string(static_cast<int>(sr)) + " Hz, max block " +
-                                  std::to_string(block) + (withFile ? ", with a working file: " : ": ") + why;
+                                  std::to_string(block) +
+                                  (withFile ? ", with a working file and a data folder: " : ": ") + why;
             }
         chk.add("lifecycle (3 rates x 3 block sizes, 200 random blocks, reset, 50 blocks)", failure.empty(),
                 failure);

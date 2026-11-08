@@ -124,6 +124,18 @@ void hostReleaseFile(void*, void* token, dsptb_file_view* view) {
     view->channels = nullptr;
 }
 
+void hostBeginGesture(void*, void* token, const char* label) {
+    ModuleInstance* m = inst(token);
+    if (m && m->host())
+        m->host()->moduleBeginGesture(*m, label ? label : "");
+}
+
+void hostEndGesture(void*, void* token) {
+    ModuleInstance* m = inst(token);
+    if (m && m->host())
+        m->host()->moduleEndGesture(*m);
+}
+
 void* hostGpuDevice(void*) {
     return nullptr; // no module in v1 asks for the GPU yet
 }
@@ -164,6 +176,20 @@ std::shared_ptr<ModuleInstance> ModuleInstance::create(InstanceId id, ModulePack
     const auto dir = pkg.folder.u8string();
     m->moduleDirUtf8_.assign(dir.begin(), dir.end());
     m->params_.init(desc.params, desc.num_params);
+    if (host) {
+        // The folder exists before create(), so a module can list its files straight away.
+        const std::filesystem::path data = host->moduleDataDir(m->moduleId_);
+        std::error_code ec;
+        if (!data.empty()) {
+            std::filesystem::create_directories(data, ec);
+            if (std::filesystem::is_directory(data, ec)) {
+                const auto u8 = data.u8string();
+                m->moduleDataDirUtf8_.assign(u8.begin(), u8.end());
+            } else {
+                spdlog::warn("module {}: can't create its data folder {}", m->moduleId_, data.string());
+            }
+        }
+    }
 
     dsptb_host_api& h = m->hostApi_;
     h.struct_size = sizeof(h);
@@ -182,6 +208,9 @@ std::shared_ptr<ModuleInstance> ModuleInstance::create(InstanceId id, ModulePack
     h.working_file_generation = &hostFileGeneration;
     h.acquire_working_file = &hostAcquireFile;
     h.release_working_file = &hostReleaseFile;
+    h.module_data_dir_utf8 = m->moduleDataDirUtf8_.empty() ? nullptr : m->moduleDataDirUtf8_.c_str();
+    h.begin_param_gesture = &hostBeginGesture;
+    h.end_param_gesture = &hostEndGesture;
 
     void* self = nullptr;
     const bool ok = guarded([&] { self = desc.create(&m->hostApi_); });

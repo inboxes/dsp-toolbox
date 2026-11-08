@@ -7,6 +7,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -64,6 +65,17 @@ public:
         generation = 0;
         return {};
     }
+    // Per-user folder for a module id, or empty when this host offers none. The instance creates it.
+    virtual std::filesystem::path moduleDataDir(const std::string& moduleId) {
+        (void)moduleId;
+        return {};
+    }
+    // Param gestures: between begin and end, the instance's param and state changes form one undo step.
+    virtual void moduleBeginGesture(class ModuleInstance& who, const char* undoLabel) {
+        (void)who;
+        (void)undoLabel;
+    }
+    virtual void moduleEndGesture(class ModuleInstance& who) { (void)who; }
 };
 
 // Holds the working file for a host: a lock for the pointer, an atomic for the generation the audio thread reads.
@@ -115,6 +127,7 @@ public:
     const ParamBlock& params() const { return params_; }
     void setHost(IModuleHost* host) { host_ = host; }
     IModuleHost* host() const { return host_; }
+    const dsptb_host_api& hostApi() const { return hostApi_; }
 
     // ---- UI / worker thread ----
     // Prepares the module and sizes the host-side buffers. The instance must not be processing.
@@ -174,6 +187,7 @@ private:
     InstanceId id_ = 0;
     std::string moduleId_;
     std::string moduleDirUtf8_;
+    std::string moduleDataDirUtf8_; // empty: the host offers no data folder (the API then passes NULL)
     ModulePackage* pkg_ = nullptr;
     const dsptb_module_desc* desc_ = nullptr;
     IModuleHost* host_ = nullptr;
@@ -212,9 +226,15 @@ public:
         who.params().set(index, value);
     }
     void moduleMarkStateDirty(ModuleInstance&, const char*) override {}
+    // `validate` gives modules a data folder under this root; empty (the default) offers none.
+    void setDataRoot(std::filesystem::path root) { dataRoot_ = std::move(root); }
+    std::filesystem::path moduleDataDir(const std::string& moduleId) override {
+        return dataRoot_.empty() ? std::filesystem::path() : dataRoot_ / std::filesystem::path(moduleId);
+    }
 
 private:
     WorkingFileSlot file_;
+    std::filesystem::path dataRoot_;
 };
 
 } // namespace dsptb
