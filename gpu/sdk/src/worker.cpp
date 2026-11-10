@@ -4,29 +4,36 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+// clang-format off
 #include <avrt.h>
+// clang-format on
 
 namespace dsptb::gpu {
 
 MmcssScope::MmcssScope() {
     DWORD index = 0;
     HANDLE h = AvSetMmThreadCharacteristicsW(L"Audio", &index);
-    if (h) AvSetMmThreadPriority(h, AVRT_PRIORITY_HIGH);
+    if (h)
+        AvSetMmThreadPriority(h, AVRT_PRIORITY_HIGH);
     handle_ = h;
 }
 
 MmcssScope::~MmcssScope() {
-    if (handle_) AvRevertMmThreadCharacteristics(static_cast<HANDLE>(handle_));
+    if (handle_)
+        AvRevertMmThreadCharacteristics(static_cast<HANDLE>(handle_));
 }
 
 HighResTimer::HighResTimer() {
-    HANDLE h = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-    if (!h) h = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
+    HANDLE h =
+        CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+    if (!h)
+        h = CreateWaitableTimerExW(nullptr, nullptr, 0, TIMER_ALL_ACCESS);
     handle_ = h;
 }
 
 HighResTimer::~HighResTimer() {
-    if (handle_) CloseHandle(static_cast<HANDLE>(handle_));
+    if (handle_)
+        CloseHandle(static_cast<HANDLE>(handle_));
 }
 
 void HighResTimer::wait(int64_t microseconds) {
@@ -36,8 +43,10 @@ void HighResTimer::wait(int64_t microseconds) {
     }
     LARGE_INTEGER due;
     due.QuadPart = -10 * microseconds; // relative, in 100 ns units
-    if (SetWaitableTimer(static_cast<HANDLE>(handle_), &due, 0, nullptr, nullptr, FALSE)) WaitForSingleObject(static_cast<HANDLE>(handle_), 50);
-    else Sleep(1);
+    if (SetWaitableTimer(static_cast<HANDLE>(handle_), &due, 0, nullptr, nullptr, FALSE))
+        WaitForSingleObject(static_cast<HANDLE>(handle_), 50);
+    else
+        Sleep(1);
 }
 
 int64_t nowMicros() {

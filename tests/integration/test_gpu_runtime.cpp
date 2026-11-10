@@ -1,7 +1,7 @@
-// GPU runtime integration tests (docs/GPU_RUNTIME.md G10 to G15): the real runtime, the real ORT and LibTorch stages and
-// the test.gpu-probe module, through the host's own module and engine code. They need an NVIDIA GPU; without one every
-// case skips itself. They live in their own executable because the fake dsptb_gpu.dll used by the loader tests has the
-// same file name as the real one and the two cannot share a process.
+// GPU runtime integration tests (docs/GPU_RUNTIME.md G10 to G15): the real runtime, the real ORT and LibTorch
+// stages and the test.gpu-probe module, through the host's own module and engine code. They need an NVIDIA
+// GPU; without one every case skips itself. They live in their own executable because the fake dsptb_gpu.dll
+// used by the loader tests has the same file name as the real one and the two cannot share a process.
 #include <doctest/doctest.h>
 
 #include <dsptb/core/analysis.hpp>
@@ -37,15 +37,20 @@ bool gpuReady() {
     static const bool ok = [] {
         GpuRuntimeRequest req;
         req.dir = DSPTB_GPU_RUNTIME_STAGE_DIR;
-        if (const char* sync = std::getenv("DSPTB_GPU_TEST_SYNC")) req.blocking = std::string(sync) != "spin";
+        if (const char* sync = std::getenv("DSPTB_GPU_TEST_SYNC"))
+            req.blocking = std::string(sync) != "spin";
         GpuRuntimeLoader::instance().load(req);
-        if (!GpuRuntimeLoader::instance().available()) MESSAGE("no GPU runtime, skipping: ", GpuRuntimeLoader::instance().state().statusText);
+        if (!GpuRuntimeLoader::instance().available())
+            MESSAGE("no GPU runtime, skipping: ", GpuRuntimeLoader::instance().state().statusText);
         return GpuRuntimeLoader::instance().available();
     }();
     return ok;
 }
-#define REQUIRE_GPU() \
-    do { if (!gpuReady()) return; } while (0)
+#define REQUIRE_GPU()                                                                                        \
+    do {                                                                                                     \
+        if (!gpuReady())                                                                                     \
+            return;                                                                                          \
+    } while (0)
 
 ModuleRegistry& registry() {
     static ModuleRegistry reg = [] {
@@ -59,16 +64,18 @@ ModuleRegistry& registry() {
 
 // Parameter values of the probe, by id.
 struct ProbeParams {
-    int backend = 0;     // 0 ORT, 1 Torch
+    int backend = 0; // 0 ORT, 1 Torch
     bool graphs = true;
-    int hopMs = 20;      // 10, 20, 40
-    int model = 0;       // 0 Gain, 1 ManyKernels
+    int hopMs = 20; // 10, 20, 40
+    int model = 0;  // 0 Gain, 1 ManyKernels
     int failNext = 0;
     int loadDelayMs = 0;
     int budgetMs = 25;
     nlohmann::json toJson() const {
         const int hopIndex = hopMs == 10 ? 0 : hopMs == 20 ? 1 : 2;
-        return {{"backend", backend}, {"graphs", graphs}, {"hop_ms", hopIndex}, {"model", model}, {"fail_next", failNext}, {"load_delay_ms", loadDelayMs}, {"budget_ms", budgetMs}};
+        return {{"backend", backend},   {"graphs", graphs},      {"hop_ms", hopIndex},
+                {"model", model},       {"fail_next", failNext}, {"load_delay_ms", loadDelayMs},
+                {"budget_ms", budgetMs}};
     }
 };
 
@@ -90,9 +97,11 @@ struct Probe {
     }
     ~Probe() { inst.reset(); }
     void apply(const ProbeParams& p) {
-        const nlohmann::json values = p.toJson(); // a named object: iterating a temporary's items() would dangle
+        const nlohmann::json values =
+            p.toJson(); // a named object: iterating a temporary's items() would dangle
         for (const auto& [key, value] : values.items())
-            inst->params().set(static_cast<uint32_t>(inst->params().indexOf(key)), value.is_boolean() ? (value.get<bool>() ? 1.0f : 0.0f) : value.get<float>());
+            inst->params().set(static_cast<uint32_t>(inst->params().indexOf(key)),
+                               value.is_boolean() ? (value.get<bool>() ? 1.0f : 0.0f) : value.get<float>());
     }
     nlohmann::json stats() const {
         std::string json;
@@ -109,8 +118,8 @@ struct Probe {
         inst->params().copyToRt();
         REQUIRE(inst->callProcess(l.data() + pos, r.data() + pos, n, t));
     }
-    // Drives `in` through. With `lockstep`, waits after every block for the worker to finish every hop that is complete,
-    // so nothing misses and the run is deterministic.
+    // Drives `in` through. With `lockstep`, waits after every block for the worker to finish every hop that
+    // is complete, so nothing misses and the run is deterministic.
     std::vector<float> run(const std::vector<float>& in, bool lockstep, uint32_t hopFrames) {
         std::vector<float> l = in, r = in;
         for (size_t pos = 0; pos < in.size(); pos += block) {
@@ -119,14 +128,16 @@ struct Probe {
             if (lockstep) {
                 const uint64_t ready = (pos + n) / hopFrames;
                 const auto end = Clock::now() + std::chrono::seconds(5);
-                while (stats()["runs"].get<uint64_t>() < ready && Clock::now() < end) std::this_thread::yield();
+                while (stats()["runs"].get<uint64_t>() < ready && Clock::now() < end)
+                    std::this_thread::yield();
             }
         }
         return l;
     }
     void waitState(const char* state, int timeoutMs = 20000) const {
         const auto end = Clock::now() + std::chrono::milliseconds(timeoutMs);
-        while (stats()["state"] != state && Clock::now() < end) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        while (stats()["state"] != state && Clock::now() < end)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     SimpleModuleHost host;
     std::shared_ptr<ModuleInstance> inst;
@@ -141,7 +152,9 @@ std::vector<float> impulse(size_t n, size_t at) {
 }
 
 size_t peakIndex(const std::vector<float>& v) {
-    return static_cast<size_t>(std::max_element(v.begin(), v.end(), [](float a, float b) { return std::fabs(a) < std::fabs(b); }) - v.begin());
+    return static_cast<size_t>(
+        std::max_element(v.begin(), v.end(), [](float a, float b) { return std::fabs(a) < std::fabs(b); }) -
+        v.begin());
 }
 
 AudioBuffer stereo(const std::vector<float>& mono) {
@@ -154,7 +167,8 @@ AudioBuffer stereo(const std::vector<float>& mono) {
 
 SessionDescription probeSession(const ProbeParams& p) {
     nlohmann::json instance = {{"module", "test.gpu-probe"}, {"enabled", true}, {"params", p.toJson()}};
-    nlohmann::json doc = {{"format", "dsptb-session"}, {"version", 1}, {"instances", nlohmann::json::array({instance})}};
+    nlohmann::json doc = {
+        {"format", "dsptb-session"}, {"version", 1}, {"instances", nlohmann::json::array({instance})}};
     SessionDescription desc;
     std::string err;
     REQUIRE(parseSessionDescription(doc.dump(), desc, err));
@@ -171,11 +185,14 @@ AudioBuffer renderProbe(const ProbeParams& p, const AudioBuffer& in) {
     return out;
 }
 
-const char* backendName(int b) { return b == 0 ? "ORT" : "Torch"; }
+const char* backendName(int b) {
+    return b == 0 ? "ORT" : "Torch";
+}
 
 } // namespace
 
-TEST_CASE("G10: an impulse comes out exactly latency_frames later, 0.5 high, for both backends and every hop") {
+TEST_CASE(
+    "G10: an impulse comes out exactly latency_frames later, 0.5 high, for both backends and every hop") {
     REQUIRE_GPU();
     for (int backend : {0, 1}) {
         for (int hopMs : {10, 20, 40}) {
@@ -183,8 +200,8 @@ TEST_CASE("G10: an impulse comes out exactly latency_frames later, 0.5 high, for
             p.backend = backend;
             p.hopMs = hopMs;
             INFO(backendName(backend), " hop ", hopMs, " ms");
-            // Offline, through the export path: the render trims the latency, so an exact latency puts the impulse back
-            // where it started.
+            // Offline, through the export path: the render trims the latency, so an exact latency puts the
+            // impulse back where it started.
             {
                 const size_t at = 3000;
                 const AudioBuffer out = renderProbe(p, stereo(impulse(30000, at)));
@@ -192,10 +209,12 @@ TEST_CASE("G10: an impulse comes out exactly latency_frames later, 0.5 high, for
                 CHECK(std::fabs(out.ch[0][at] - 0.5f) < 1e-6f);
                 float rest = 0;
                 for (size_t i = 0; i < out.ch[0].size(); ++i)
-                    if (i != at) rest = std::max(rest, std::fabs(out.ch[0][i]));
+                    if (i != at)
+                        rest = std::max(rest, std::fabs(out.ch[0][i]));
                 CHECK(rest < 1e-6f);
             }
-            // Live (a worker thread), blocks of 128, lockstep so the worker never lags: the impulse sits at latency_frames.
+            // Live (a worker thread), blocks of 128, lockstep so the worker never lags: the impulse sits at
+            // latency_frames.
             {
                 Probe probe(p);
                 probe.waitState("Running");
@@ -247,11 +266,14 @@ TEST_CASE("G11: paced at real time, 48 kHz and 128 frames, a graphed ManyKernels
         p.backend = backend;
         p.model = 1;
         p.hopMs = 20;
-        if (const char* b = std::getenv("DSPTB_GPU_RT_BUDGET_MS")) p.budgetMs = std::atoi(b);
+        if (const char* b = std::getenv("DSPTB_GPU_RT_BUDGET_MS"))
+            p.budgetMs = std::atoi(b);
         InstanceRecord* rec = model.find(id);
         const nlohmann::json values = p.toJson();
         for (const auto& [key, value] : values.items())
-            rec->instance->params().set(static_cast<uint32_t>(rec->instance->params().indexOf(key)), value.is_boolean() ? (value.get<bool>() ? 1.0f : 0.0f) : value.get<float>());
+            rec->instance->params().set(static_cast<uint32_t>(rec->instance->params().indexOf(key)),
+                                        value.is_boolean() ? (value.get<bool>() ? 1.0f : 0.0f)
+                                                           : value.get<float>());
         REQUIRE(rec->instance->prepare(kRate, 128, false, err));
         REQUIRE(engine.start(err));
         engine.setLoop(true, 0, static_cast<uint64_t>(file->audio.frames()));
@@ -266,22 +288,31 @@ TEST_CASE("G11: paced at real time, 48 kHz and 128 frames, a graphed ManyKernels
             model.tick(std::chrono::duration<double>(Clock::now() - t0).count(), messages);
             if (!sampled && std::chrono::duration<double>(Clock::now() - t0).count() > 1.0) {
                 std::string j;
-                if (rec->instance->saveState(j)) missesAtOneSecond = nlohmann::json::parse(j)["misses"].get<uint64_t>();
+                if (rec->instance->saveState(j))
+                    missesAtOneSecond = nlohmann::json::parse(j)["misses"].get<uint64_t>();
                 sampled = true;
             }
         }
         std::string json;
         REQUIRE(rec->instance->saveState(json));
         const auto s = nlohmann::json::parse(json);
-        MESSAGE(backendName(backend), " ManyKernels, hop 20 ms, ", seconds, " s: runs ", s["runs"].get<uint64_t>(), ", misses ", s["misses"].get<uint64_t>(),
-                ", compute p50 ", s["p50Us"].get<int>() / 1000.0, " ms, p99 ", s["p99Us"].get<int>() / 1000.0, " ms, max ", s["maxUs"].get<int>() / 1000.0,
-                " ms, graphed ", s["graphed"].get<bool>(), ", engine underruns ", engine.underruns(), ", compute all-time max ", s["computeAllMaxUs"].get<int>() / 1000.0, " ms, worker wake late max ", s["wakeLateMaxUs"].get<int>() / 1000.0, " ms, whole hop max ", s["hopTotalMaxUs"].get<int>() / 1000.0, " ms, misses in the first second ", missesAtOneSecond, ", last miss at output frame ", s["lastMissFrame"].get<uint64_t>());
+        MESSAGE(backendName(backend), " ManyKernels, hop 20 ms, ", seconds, " s: runs ",
+                s["runs"].get<uint64_t>(), ", misses ", s["misses"].get<uint64_t>(), ", compute p50 ",
+                s["p50Us"].get<int>() / 1000.0, " ms, p99 ", s["p99Us"].get<int>() / 1000.0, " ms, max ",
+                s["maxUs"].get<int>() / 1000.0, " ms, graphed ", s["graphed"].get<bool>(),
+                ", engine underruns ", engine.underruns(), ", compute all-time max ",
+                s["computeAllMaxUs"].get<int>() / 1000.0, " ms, worker wake late max ",
+                s["wakeLateMaxUs"].get<int>() / 1000.0, " ms, whole hop max ",
+                s["hopTotalMaxUs"].get<int>() / 1000.0, " ms, misses in the first second ", missesAtOneSecond,
+                ", last miss at output frame ", s["lastMissFrame"].get<uint64_t>());
         CHECK(s["state"] == "Running");
         CHECK(s["graphed"] == true);
-        // Latency comes first: an occasional GPU stall (another process sharing the GPU made single runs take about 18 ms
-        // instead of 2.6 ms) drops one hop to the dry signal instead of growing the budget. The bar is the dropped share
-        // of hops: at most 0.2 %. (A hop being output when a late model load finishes is not counted.)
-        const double dropped = static_cast<double>(s["misses"].get<uint64_t>()) / std::max<uint64_t>(1, s["runs"].get<uint64_t>());
+        // Latency comes first: an occasional GPU stall (another process sharing the GPU made single runs take
+        // about 18 ms instead of 2.6 ms) drops one hop to the dry signal instead of growing the budget. The
+        // bar is the dropped share of hops: at most 0.2 %. (A hop being output when a late model load
+        // finishes is not counted.)
+        const double dropped = static_cast<double>(s["misses"].get<uint64_t>()) /
+                               std::max<uint64_t>(1, s["runs"].get<uint64_t>());
         MESSAGE("dropped hops ", dropped * 100.0, " %");
         CHECK(dropped <= 0.002);
         CHECK(engine.underruns() == 0);
@@ -317,7 +348,8 @@ TEST_CASE("G12: re-preparing one probe 20 times does not disturb another that is
             pos += 128;
             blocks.fetch_add(1);
             const auto due = t0 + std::chrono::duration<double>(static_cast<double>(pos) / kRate);
-            while (Clock::now() < due) std::this_thread::yield();
+            while (Clock::now() < due)
+                std::this_thread::yield();
         }
     });
     std::this_thread::sleep_for(std::chrono::milliseconds(300));
@@ -331,14 +363,17 @@ TEST_CASE("G12: re-preparing one probe 20 times does not disturb another that is
         other.hopMs = i % 3 == 0 ? 10 : i % 3 == 1 ? 20 : 40;
         b.apply(other);
         std::string err;
-        if (!b.inst->prepare(kRate, 128, false, err)) ++failures;
+        if (!b.inst->prepare(kRate, 128, false, err))
+            ++failures;
         b.waitState("Running");
-        if (b.stats()["state"] != "Running") ++failures;
+        if (b.stats()["state"] != "Running")
+            ++failures;
     }
     const uint64_t missesAfter = a.stats()["misses"].get<uint64_t>();
     stop.store(true);
     audio.join();
-    MESSAGE("20 re-prepares of a LibTorch probe next to a running ORT probe: ", missesAfter - missesBefore, " missed hops on the running one, ", blocks.load(), " blocks");
+    MESSAGE("20 re-prepares of a LibTorch probe next to a running ORT probe: ", missesAfter - missesBefore,
+            " missed hops on the running one, ", blocks.load(), " blocks");
     CHECK(failures == 0);
     CHECK(a.stats()["state"] == "Running");
     CHECK(missesAfter - missesBefore <= 20); // at most one hop per re-prepare
@@ -353,25 +388,29 @@ TEST_CASE("G13: a failing run, or a real CUDA error, turns the output dry; nothi
         probe.waitState("Running");
         REQUIRE(probe.stats()["state"] == "Running");
         const uint32_t hop = 20 * 48;
-        // A steady 0.4 on both channels. Before the failure the output is the model's 0.5 x, after it the dry input.
+        // A steady 0.4 on both channels. Before the failure the output is the model's 0.5 x, after it the dry
+        // input.
         std::vector<float> in(kRate * 2, 0.4f);
         std::vector<float> l = in, r = in;
         size_t failedAt = 0;
         for (size_t pos = 0; pos < in.size(); pos += probe.block) {
             if (pos >= kRate / 2 && failedAt == 0) {
                 failedAt = pos;
-                probe.inst->params().set(static_cast<uint32_t>(probe.inst->params().indexOf("fail_next")), static_cast<float>(fail));
+                probe.inst->params().set(static_cast<uint32_t>(probe.inst->params().indexOf("fail_next")),
+                                         static_cast<float>(fail));
             }
             probe.process(l, r, pos, probe.block);
             const auto end = Clock::now() + std::chrono::milliseconds(3);
-            while (Clock::now() < end) std::this_thread::yield(); // roughly real time, so the worker keeps up
+            while (Clock::now() < end)
+                std::this_thread::yield(); // roughly real time, so the worker keeps up
         }
         probe.waitState("Failed", 2000);
         const auto s = probe.stats();
         INFO("fail mode ", fail, " at ", failedAt, " error: ", s["error"].get<std::string>());
         CHECK(s["state"] == "Failed");
         CHECK(s["error"].get<std::string>().size() > 0);
-        if (fail == 2) CHECK(s["error"].get<std::string>().find("CUDA") != std::string::npos);
+        if (fail == 2)
+            CHECK(s["error"].get<std::string>().find("CUDA") != std::string::npos);
         // Steady state of the tail: the dry signal, 0.4.
         CHECK(std::fabs(l.back() - 0.4f) < 1e-5f);
         // And it keeps answering.
@@ -398,12 +437,14 @@ TEST_CASE("G14: an offline render is byte-identical when repeated, for both back
         REQUIRE(a.frames() == b.frames());
         size_t differing = 0;
         for (int c = 0; c < 2; ++c)
-            for (size_t i = 0; i < a.frames(); ++i) differing += a.ch[c][i] != b.ch[c][i];
+            for (size_t i = 0; i < a.frames(); ++i)
+                differing += a.ch[c][i] != b.ch[c][i];
         MESSAGE(backendName(backend), ": ", differing, " differing samples of ", a.frames() * 2);
         CHECK(differing == 0);
         // And it is the model's output: 0.5 x.
         double worst = 0;
-        for (size_t i = 0; i < a.frames(); ++i) worst = std::max(worst, std::fabs(static_cast<double>(a.ch[0][i]) - 0.5 * in.ch[0][i]));
+        for (size_t i = 0; i < a.frames(); ++i)
+            worst = std::max(worst, std::fabs(static_cast<double>(a.ch[0][i]) - 0.5 * in.ch[0][i]));
         CHECK(worst < 1e-6);
     }
 }
@@ -417,7 +458,8 @@ TEST_CASE("G15: loading is asynchronous: dry audio meanwhile, an unchanged laten
     const uint32_t latency = probe.inst->latencyFrames();
     CHECK(latency == 20u * 48 + 25u * 48);
     CHECK(probe.stats()["state"] == "Loading");
-    // Audio keeps running, dry: a steady 0.3 on the input comes out as 0.3 (not the model's 0.15, not silence).
+    // Audio keeps running, dry: a steady 0.3 on the input comes out as 0.3 (not the model's 0.15, not
+    // silence).
     std::vector<float> in(kRate / 2, 0.3f);
     std::vector<float> l = in, r = in;
     for (size_t pos = 0; pos < in.size(); pos += probe.block)

@@ -1,5 +1,5 @@
-// Tests for dsptb_gpu.dll, loaded the way the host does it: LoadLibraryExW and GetProcAddress, no import library.
-// Cases that need a GPU skip themselves (the test passes) on a machine without one.
+// Tests for dsptb_gpu.dll, loaded the way the host does it: LoadLibraryExW and GetProcAddress, no import
+// library. Cases that need a GPU skip themselves (the test passes) on a machine without one.
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
@@ -32,7 +32,8 @@ Api& api() {
     static Api a = [] {
         Api r;
         const std::wstring path = fs::path(DSPTB_GPU_RUNTIME_DIR).wstring() + L"\\dsptb_gpu.dll";
-        r.dll = LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        r.dll = LoadLibraryExW(path.c_str(), nullptr,
+                               LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         REQUIRE_MESSAGE(r.dll, "cannot load dsptb_gpu.dll, error ", GetLastError());
         auto get = [&](const char* n) { return reinterpret_cast<void*>(GetProcAddress(r.dll, n)); };
         r.init = reinterpret_cast<decltype(r.init)>(get("dsptb_gpu_init"));
@@ -60,7 +61,7 @@ fs::path tempDir(const char* name) {
     fs::create_directories(d);
     return d;
 }
-}  // namespace
+} // namespace
 
 TEST_CASE("before init the runtime reports that it is not initialized") {
     dsptb_gpu_runtime_info info;

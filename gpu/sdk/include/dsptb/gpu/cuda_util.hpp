@@ -9,12 +9,12 @@
 
 namespace dsptb::gpu {
 
-// Throws on any CUDA error. A context-killing error (a lost device, a launch failure) shows up in the text; the
-// pipeline then goes to Failed and only a re-prepare recovers.
+// Throws on any CUDA error. A context-killing error (a lost device, a launch failure) shows up in the text;
+// the pipeline then goes to Failed and only a re-prepare recovers.
 inline void cudaCheck(cudaError_t e, const char* call, const char* file, int line) {
     if (e != cudaSuccess)
-        throw std::runtime_error(std::string("CUDA ") + call + " failed: " + cudaGetErrorString(e) + " at " + file + ":" +
-                                 std::to_string(line));
+        throw std::runtime_error(std::string("CUDA ") + call + " failed: " + cudaGetErrorString(e) + " at " +
+                                 file + ":" + std::to_string(line));
 }
 #define DSPTB_CUDA_CHECK(expr) ::dsptb::gpu::cudaCheck((expr), #expr, __FILE__, __LINE__)
 
@@ -47,7 +47,10 @@ public:
     ~PinnedBuffer() { release(); }
     PinnedBuffer(const PinnedBuffer&) = delete;
     PinnedBuffer& operator=(const PinnedBuffer&) = delete;
-    PinnedBuffer(PinnedBuffer&& o) noexcept : ptr_(o.ptr_), bytes_(o.bytes_) { o.ptr_ = nullptr; o.bytes_ = 0; }
+    PinnedBuffer(PinnedBuffer&& o) noexcept : ptr_(o.ptr_), bytes_(o.bytes_) {
+        o.ptr_ = nullptr;
+        o.bytes_ = 0;
+    }
     PinnedBuffer& operator=(PinnedBuffer&& o) noexcept {
         if (this != &o) {
             release();
@@ -64,7 +67,8 @@ public:
         bytes_ = bytes;
     }
     void release() noexcept {
-        if (ptr_) cudaFreeHost(ptr_);
+        if (ptr_)
+            cudaFreeHost(ptr_);
         ptr_ = nullptr;
         bytes_ = 0;
     }
@@ -84,7 +88,10 @@ public:
     ~DeviceBuffer() { release(); }
     DeviceBuffer(const DeviceBuffer&) = delete;
     DeviceBuffer& operator=(const DeviceBuffer&) = delete;
-    DeviceBuffer(DeviceBuffer&& o) noexcept : ptr_(o.ptr_), bytes_(o.bytes_) { o.ptr_ = nullptr; o.bytes_ = 0; }
+    DeviceBuffer(DeviceBuffer&& o) noexcept : ptr_(o.ptr_), bytes_(o.bytes_) {
+        o.ptr_ = nullptr;
+        o.bytes_ = 0;
+    }
     DeviceBuffer& operator=(DeviceBuffer&& o) noexcept {
         if (this != &o) {
             release();
@@ -101,7 +108,8 @@ public:
         bytes_ = bytes;
     }
     void release() noexcept {
-        if (ptr_) cudaFree(ptr_);
+        if (ptr_)
+            cudaFree(ptr_);
         ptr_ = nullptr;
         bytes_ = 0;
     }

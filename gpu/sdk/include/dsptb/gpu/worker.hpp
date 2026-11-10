@@ -1,6 +1,6 @@
-// Platform helpers for the inference worker thread (docs/GPU_RUNTIME.md section 7.1). Windows only, no CUDA. The
-// implementation is in worker.cpp so that this header, and with it pipeline.hpp, does not include <windows.h>: a
-// module that also includes <dsptb/sdk.hpp> would hit its own declaration of RaiseException.
+// Platform helpers for the inference worker thread (docs/GPU_RUNTIME.md section 7.1). Windows only, no CUDA.
+// The implementation is in worker.cpp so that this header, and with it pipeline.hpp, does not include
+// <windows.h>: a module that also includes <dsptb/sdk.hpp> would hit its own declaration of RaiseException.
 #pragma once
 
 #include <cstdint>
@@ -20,8 +20,8 @@ private:
     void* handle_ = nullptr;
 };
 
-// A waitable timer that can sleep for about a millisecond. The high-resolution flavour (Windows 10 1803 and later)
-// is exact; without it the timer is as coarse as the system tick.
+// A waitable timer that can sleep for about a millisecond. The high-resolution flavour (Windows 10 1803 and
+// later) is exact; without it the timer is as coarse as the system tick.
 class HighResTimer {
 public:
     HighResTimer();

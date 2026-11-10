@@ -1,5 +1,5 @@
-// Tests of the real ORT and LibTorch stages on the tiny test models (docs/GPU_RUNTIME.md G7, G8, G9). They need an
-// NVIDIA GPU: without one every case skips itself and the test passes.
+// Tests of the real ORT and LibTorch stages on the tiny test models (docs/GPU_RUNTIME.md G7, G8, G9). They
+// need an NVIDIA GPU: without one every case skips itself and the test passes.
 #define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 #include <doctest/doctest.h>
 
@@ -8,7 +8,9 @@
 #include <dsptb/gpu/torch_stage.hpp>
 
 #include <windows.h>
+// clang-format off
 #include <psapi.h>
+// clang-format on
 
 #include <algorithm>
 #include <atomic>
@@ -32,17 +34,23 @@ bool gpuAvailable() {
     static const bool ok = [] {
         dsptb_gpu_runtime_info info{};
         const int status = loadRuntime(DSPTB_GPU_RUNTIME_DIR, 0, true, info);
-        if (status != DSPTB_GPU_OK) MESSAGE("no GPU runtime, skipping: ", info.status_text);
+        if (status != DSPTB_GPU_OK)
+            MESSAGE("no GPU runtime, skipping: ", info.status_text);
         return status == DSPTB_GPU_OK;
     }();
     return ok;
 }
 
-#define REQUIRE_GPU() \
-    do { if (!gpuAvailable()) return; } while (0)
+#define REQUIRE_GPU()                                                                                        \
+    do {                                                                                                     \
+        if (!gpuAvailable())                                                                                 \
+            return;                                                                                          \
+    } while (0)
 
 enum class Backend { Ort, Torch };
-const char* name(Backend b) { return b == Backend::Ort ? "ORT" : "LibTorch"; }
+const char* name(Backend b) {
+    return b == Backend::Ort ? "ORT" : "LibTorch";
+}
 
 std::unique_ptr<Stage> makeStage(Backend b, const std::string& model, uint32_t hopMs, bool graph) {
     const uint32_t hop = hopMs * 48;
@@ -63,7 +71,12 @@ struct Locked {
     void prepare(Stage& s) { s.prepare(); } // the stages lock around the capture themselves
     void run(Stage& s, const float* w, uint32_t wn, float* out, uint32_t hop) {
         lock.lockShared();
-        try { s.run(w, wn, out, hop); } catch (...) { lock.unlockShared(); throw; }
+        try {
+            s.run(w, wn, out, hop);
+        } catch (...) {
+            lock.unlockShared();
+            throw;
+        }
         lock.unlockShared();
     }
 };
@@ -72,7 +85,8 @@ std::vector<float> noise(size_t n, unsigned seed) {
     std::mt19937 rng(seed);
     std::uniform_real_distribution<float> u(-1.0f, 1.0f);
     std::vector<float> v(n);
-    for (float& x : v) x = u(rng);
+    for (float& x : v)
+        x = u(rng);
     return v;
 }
 
@@ -81,7 +95,8 @@ double medianMs(Stage& s, uint32_t hopMs, int runs) {
     const uint32_t hop = hopMs * 48, window = kContext + hop;
     const auto in = noise(window, 5);
     std::vector<float> out(hop);
-    for (int i = 0; i < 20; ++i) l.run(s, in.data(), window, out.data(), hop);
+    for (int i = 0; i < 20; ++i)
+        l.run(s, in.data(), window, out.data(), hop);
     std::vector<double> ms;
     for (int i = 0; i < runs; ++i) {
         const auto t0 = Clock::now();
@@ -110,9 +125,11 @@ TEST_CASE("G7: both backends match the CPU reference, with and without graphs") 
                     const auto in = noise(window, seed);
                     std::vector<float> out(hop);
                     l.run(*stage, in.data(), window, out.data(), hop);
-                    for (uint32_t k = 0; k < hop; ++k) worst = std::max(worst, std::fabs(out[k] - 0.5f * in[kContext + k]));
+                    for (uint32_t k = 0; k < hop; ++k)
+                        worst = std::max(worst, std::fabs(out[k] - 0.5f * in[kContext + k]));
                 }
-                MESSAGE(std::string(name(b)), " ", model, graph ? " graphed" : " eager", ": max abs diff ", worst);
+                MESSAGE(std::string(name(b)), " ", model, graph ? " graphed" : " eager", ": max abs diff ",
+                        worst);
                 CHECK(worst <= 1e-6f);
             }
         }
@@ -130,7 +147,8 @@ TEST_CASE("G8: a CUDA graph at least halves the time of a launch-bound model") {
         REQUIRE(graphed->graphed());
         const double a = medianMs(*eager, 20, 300);
         const double g = medianMs(*graphed, 20, 300);
-        MESSAGE(std::string(name(b)), " many_kernels, 300 runs: median ", a, " ms without graph, ", g, " ms with graph (", g / a * 100, " %)");
+        MESSAGE(std::string(name(b)), " many_kernels, 300 runs: median ", a, " ms without graph, ", g,
+                " ms with graph (", g / a * 100, " %)");
         CHECK(g <= 0.5 * a);
     }
 }
@@ -155,8 +173,10 @@ TEST_CASE("G9: an ORT stage and a LibTorch stage alternate on two threads for a 
             while (!stop.load()) {
                 l.run(*stage, in.data(), window, out.data(), hop);
                 float w = 0;
-                for (uint32_t k = 0; k < hop; ++k) w = std::max(w, std::fabs(out[k] - 0.5f * in[kContext + k]));
-                if (w > worst[index].load()) worst[index].store(w);
+                for (uint32_t k = 0; k < hop; ++k)
+                    w = std::max(w, std::fabs(out[k] - 0.5f * in[kContext + k]));
+                if (w > worst[index].load())
+                    worst[index].store(w);
                 runs[index].fetch_add(1);
                 std::this_thread::sleep_for(std::chrono::milliseconds(2));
             }
@@ -170,7 +190,8 @@ TEST_CASE("G9: an ORT stage and a LibTorch stage alternate on two threads for a 
     stop.store(true);
     a.join();
     b.join();
-    MESSAGE("ORT ", runs[0].load(), " runs (worst diff ", worst[0].load(), "), LibTorch ", runs[1].load(), " runs (worst diff ", worst[1].load(), ") in ", seconds, " s");
+    MESSAGE("ORT ", runs[0].load(), " runs (worst diff ", worst[0].load(), "), LibTorch ", runs[1].load(),
+            " runs (worst diff ", worst[1].load(), ") in ", seconds, " s");
     CHECK(errors.load() == 0);
     CHECK(runs[0].load() > 100);
     CHECK(runs[1].load() > 100);
@@ -187,23 +208,29 @@ size_t privateBytes() {
 }
 } // namespace
 
-// CUDA, cuDNN and kernel modules load lazily, so memory steps up once, by up to a couple of hundred MB (ORT in eager mode
-// does it over its first ~25 sessions), and then stays. A real leak grows in every window, so growth counts only when two
-// successive windows of 30 cycles both grow by more than 8 MB.
-// LibTorch is the exception: every TorchScript model load costs about 1 MB (eager) to 2.3 MB (graphed) of host memory that
-// stays after the model is destroyed (cause not found; see docs/GPU_RUNTIME.md section 15). It is reported as a warning, not a failure,
-// because it happens only when a module is prepared, not while it runs (see "running a stage thousands of times").
+// CUDA, cuDNN and kernel modules load lazily, so memory steps up once, by up to a couple of hundred MB (ORT
+// in eager mode does it over its first ~25 sessions), and then stays. A real leak grows in every window, so
+// growth counts only when two successive windows of 30 cycles both grow by more than 8 MB. LibTorch is the
+// exception: every TorchScript model load costs about 1 MB (eager) to 2.3 MB (graphed) of host memory that
+// stays after the model is destroyed (cause not found; see docs/GPU_RUNTIME.md section 15). It is reported as
+// a warning, not a failure, because it happens only when a module is prepared, not while it runs (see
+// "running a stage thousands of times").
 template <class Once> void checkNoLeak(const std::string& what, bool strict, Once&& once) {
-    for (int i = 0; i < 30; ++i) once(); // warm-up: lazy loading
+    for (int i = 0; i < 30; ++i)
+        once(); // warm-up: lazy loading
     double grow[2];
     for (double& g : grow) {
         const size_t before = privateBytes();
-        for (int i = 0; i < 30; ++i) once();
+        for (int i = 0; i < 30; ++i)
+            once();
         g = (static_cast<double>(privateBytes()) - static_cast<double>(before)) / (1024.0 * 1024.0);
     }
-    MESSAGE(what, ": private bytes grew by ", grow[0], " MB, then ", grow[1], " MB over two windows of 30 cycles");
-    if (strict) CHECK_FALSE((grow[0] > 8.0 && grow[1] > 8.0));
-    else WARN_FALSE((grow[0] > 8.0 && grow[1] > 8.0));
+    MESSAGE(what, ": private bytes grew by ", grow[0], " MB, then ", grow[1],
+            " MB over two windows of 30 cycles");
+    if (strict)
+        CHECK_FALSE((grow[0] > 8.0 && grow[1] > 8.0));
+    else
+        WARN_FALSE((grow[0] > 8.0 && grow[1] > 8.0));
 }
 
 TEST_CASE("creating and destroying a stage repeatedly does not leak") {
@@ -229,32 +256,36 @@ TEST_CASE("running a stage thousands of times does not grow the process") {
             Locked l;
             l.prepare(*stage);
             std::vector<float> in(1920, 0.1f), out(960);
-            for (int i = 0; i < 200; ++i) l.run(*stage, in.data(), 1920, out.data(), 960);
+            for (int i = 0; i < 200; ++i)
+                l.run(*stage, in.data(), 1920, out.data(), 960);
             const size_t before = privateBytes();
-            for (int i = 0; i < 3000; ++i) l.run(*stage, in.data(), 1920, out.data(), 960);
-            const double growMb = (static_cast<double>(privateBytes()) - static_cast<double>(before)) / (1024.0 * 1024.0);
-            MESSAGE(std::string(name(b)), graph ? " graphed" : " eager", ": private bytes grew by ", growMb, " MB over 3000 runs");
+            for (int i = 0; i < 3000; ++i)
+                l.run(*stage, in.data(), 1920, out.data(), 960);
+            const double growMb =
+                (static_cast<double>(privateBytes()) - static_cast<double>(before)) / (1024.0 * 1024.0);
+            MESSAGE(std::string(name(b)), graph ? " graphed" : " eager", ": private bytes grew by ", growMb,
+                    " MB over 3000 runs");
             CHECK(growMb < 1.0);
         }
     }
 }
 
-
 TEST_CASE("creating a stage on a new thread each time does not leak") {
     REQUIRE_GPU();
     for (Backend b : {Backend::Ort, Backend::Torch}) {
         for (bool graph : {false, true}) {
-            checkNoLeak(std::string(name(b)) + (graph ? " graphed" : " eager") + ", new thread", b == Backend::Ort, [&] {
-                std::thread t([&] {
-                    auto stage = makeStage(b, "gain", 20, graph);
-                    Locked l;
-                    l.prepare(*stage);
-                    std::vector<float> in(1920, 0.1f), out(960);
-                    l.run(*stage, in.data(), 1920, out.data(), 960);
-                    stage->teardown(); // on the thread that created it (Stage::teardown)
-                });
-                t.join();
-            });
+            checkNoLeak(std::string(name(b)) + (graph ? " graphed" : " eager") + ", new thread",
+                        b == Backend::Ort, [&] {
+                            std::thread t([&] {
+                                auto stage = makeStage(b, "gain", 20, graph);
+                                Locked l;
+                                l.prepare(*stage);
+                                std::vector<float> in(1920, 0.1f), out(960);
+                                l.run(*stage, in.data(), 1920, out.data(), 960);
+                                stage->teardown(); // on the thread that created it (Stage::teardown)
+                            });
+                            t.join();
+                        });
         }
     }
 }
