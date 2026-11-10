@@ -1,6 +1,6 @@
 // The host side of the GPU runtime (docs/GPU_RUNTIME.md section 6.5 and 9.1): the loader, module gating by
-// requires.gpuRuntime, `dsptb-cli gpu-info` and `validate --allow-skip`. A fake dsptb_gpu.dll stands in for the
-// real one, so none of this needs a GPU. The cases that use the real runtime exist only in GPU builds.
+// requires.gpuRuntime, `dsptb-cli gpu-info` and `validate --allow-skip`. A fake dsptb_gpu.dll stands in for
+// the real one, so none of this needs a GPU. The cases that use the real runtime exist only in GPU builds.
 #include <doctest/doctest.h>
 
 #include <dsptb/core/gpu_runtime_loader.hpp>
@@ -125,8 +125,8 @@ TEST_CASE("gpu: a missing runtime folder is not an error") {
 TEST_CASE("gpu: the fake runtime reports each status to the loader") {
     LoaderReset reset;
     GpuRuntimeLoader& rt = GpuRuntimeLoader::instance();
-    for (int status : {DSPTB_GPU_NO_DRIVER, DSPTB_GPU_NO_DEVICE, DSPTB_GPU_DLL_MISSING, DSPTB_GPU_VERSION_MISMATCH,
-                       DSPTB_GPU_INIT_FAILED}) {
+    for (int status : {DSPTB_GPU_NO_DRIVER, DSPTB_GPU_NO_DEVICE, DSPTB_GPU_DLL_MISSING,
+                       DSPTB_GPU_VERSION_MISMATCH, DSPTB_GPU_INIT_FAILED}) {
         EnvVar env("DSPTB_FAKE_GPU_STATUS", std::to_string(status));
         rt.load(requestFor(DSPTB_FAKE_GPU_DIR));
         INFO("status ", status);
@@ -232,7 +232,8 @@ TEST_CASE("cli: validate --allow-skip skips a package that needs a missing runti
     CHECK(j["skipped"] == true);
     CHECK(j["passed"] == false);
     // An ordinary module still validates with the same flag.
-    const RunResult plain = runCli("validate \"" + (fs::path(DSPTB_MODULES_DIR) / "org.dsptb.gain").string() + "\" --allow-skip");
+    const RunResult plain =
+        runCli("validate \"" + (fs::path(DSPTB_MODULES_DIR) / "org.dsptb.gain").string() + "\" --allow-skip");
     CHECK(plain.exitCode == 0);
     CHECK(plain.out.find("PASS") != std::string::npos);
 }
@@ -266,8 +267,7 @@ TEST_CASE("cli: gpu-info on the real runtime, and on a folder without cudnn64_9.
     fs::copy_file(src / "dsptb_gpu.dll", dst / "dsptb_gpu.dll", ec);
     fs::create_directories(dst / "bin", ec);
     for (const auto& e : fs::directory_iterator(src / "bin"))
-        if (e.path().filename() != "cudnn64_9.dll")
-        {
+        if (e.path().filename() != "cudnn64_9.dll") {
             std::error_code linkEc;
             fs::create_hard_link(e.path(), dst / "bin" / e.path().filename(), linkEc);
             REQUIRE_FALSE(linkEc);

@@ -1,6 +1,6 @@
-// LibTorch (TorchScript) on CUDA, with CUDA graphs (docs/GPU_RUNTIME.md section 7.3). No LibTorch header is needed to
-// use these classes. Models are TorchScript files made with torch.jit.trace (decision S2: AOTInductor does not work on
-// Windows here).
+// LibTorch (TorchScript) on CUDA, with CUDA graphs (docs/GPU_RUNTIME.md section 7.3). No LibTorch header is
+// needed to use these classes. Models are TorchScript files made with torch.jit.trace (decision S2:
+// AOTInductor does not work on Windows here).
 #pragma once
 
 #include <dsptb/gpu/cuda_util.hpp>
@@ -14,17 +14,18 @@
 namespace dsptb::gpu {
 
 struct TorchOptions {
-    bool graph = true;      // CUDA graph; falls back to eager (with one warning) if capture fails
+    bool graph = true;          // CUDA graph; falls back to eager (with one warning) if capture fails
     bool cudnnBenchmark = true; // cuDNN algorithm search (decision S3), only costs time in prepare()
-    // Load the file straight onto the GPU instead of loading on the CPU and moving it. The default (CPU first) keeps the
-    // traced shape constants on the CPU, which graph capture needs. A model with GRU/LSTM layers needs this setting
-    // instead: moving it with module.to() breaks the contiguous weight block cuDNN wants (a warning and a copy on every
-    // call). Export such a model after flatten_parameters(), and make sure it has no traced shape arithmetic.
+    // Load the file straight onto the GPU instead of loading on the CPU and moving it. The default (CPU
+    // first) keeps the traced shape constants on the CPU, which graph capture needs. A model with GRU/LSTM
+    // layers needs this setting instead: moving it with module.to() breaks the contiguous weight block cuDNN
+    // wants (a warning and a copy on every call). Export such a model after flatten_parameters(), and make
+    // sure it has no traced shape arithmetic.
     bool loadOnDevice = false;
 };
 
-// One TorchScript model with fixed input shapes. forward() takes the inputs in order and returns a tensor or a tuple
-// of tensors; every output is copied to pinned host memory after each run. Worker thread only.
+// One TorchScript model with fixed input shapes. forward() takes the inputs in order and returns a tensor or
+// a tuple of tensors; every output is copied to pinned host memory after each run. Worker thread only.
 class TorchModel {
 public:
     TorchModel(std::string path, std::vector<TensorSpec> inputs, TorchOptions options = {});
@@ -32,9 +33,9 @@ public:
     TorchModel(const TorchModel&) = delete;
     TorchModel& operator=(const TorchModel&) = delete;
 
-    // Loads on the CPU and then moves to the device (shape constants must stay on the CPU, or `int(tensor)` syncs the
-    // GPU inside capture), allocates the static tensors, warms up on the stream and captures the graph. Hold the
-    // capture lock exclusively. Throws std::runtime_error (c10::Error is converted).
+    // Loads on the CPU and then moves to the device (shape constants must stay on the CPU, or `int(tensor)`
+    // syncs the GPU inside capture), allocates the static tensors, warms up on the stream and captures the
+    // graph. Hold the capture lock exclusively. Throws std::runtime_error (c10::Error is converted).
     void prepare(CudaStream& stream);
 
     void* hostInput(size_t i);

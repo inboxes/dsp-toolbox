@@ -1,5 +1,6 @@
-// A background GPU load for dsptb-gpu-bench --gpu-load: large matrix multiplications on their own stream, in bursts, so
-// the GPU is busy about N percent of the time. It stands in for another program using the GPU (a game is the real test).
+// A background GPU load for dsptb-gpu-bench --gpu-load: large matrix multiplications on their own stream, in
+// bursts, so the GPU is busy about N percent of the time. It stands in for another program using the GPU (a
+// game is the real test).
 #pragma once
 
 #include <atomic>

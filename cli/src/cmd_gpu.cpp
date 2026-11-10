@@ -69,24 +69,26 @@ void addGpuInfoCommand(CLI::App& app, int& exitCode) {
             j["sync"] = s.syncMode == DSPTB_GPU_SYNC_BLOCKING ? "blocking" : "spin";
             j["devices"] = nlohmann::json::array();
             for (const GpuDevice& d : devices)
-                j["devices"].push_back({{"index", d.index},
-                                        {"name", d.name},
-                                        {"computeCapability", std::to_string(d.ccMajor) + "." + std::to_string(d.ccMinor)},
-                                        {"vramTotalBytes", d.vramTotal},
-                                        {"vramFreeBytes", d.vramFree}});
+                j["devices"].push_back(
+                    {{"index", d.index},
+                     {"name", d.name},
+                     {"computeCapability", std::to_string(d.ccMajor) + "." + std::to_string(d.ccMinor)},
+                     {"vramTotalBytes", d.vramTotal},
+                     {"vramFreeBytes", d.vramFree}});
             std::cout << j.dump(2) << "\n";
         } else {
-            std::printf("GPU runtime: %s\n  %s\n  folder: %s\n", s.ok() ? "OK" : "NOT AVAILABLE", s.statusText.c_str(),
-                        s.runtimeDir.c_str());
+            std::printf("GPU runtime: %s\n  %s\n  folder: %s\n", s.ok() ? "OK" : "NOT AVAILABLE",
+                        s.statusText.c_str(), s.runtimeDir.c_str());
             if (s.ok()) {
-                std::printf("  driver CUDA %s, runtime CUDA %s, cuDNN %s\n  ONNX Runtime %s, LibTorch %s\n  sync: %s\n",
-                            cudaText(s.driverCuda).c_str(), cudaText(s.runtimeCuda).c_str(), cudnnText(s.cudnn).c_str(),
-                            s.ortVersion.c_str(), s.torchVersion.c_str(),
+                std::printf("  driver CUDA %s, runtime CUDA %s, cuDNN %s\n  ONNX Runtime %s, LibTorch %s\n  "
+                            "sync: %s\n",
+                            cudaText(s.driverCuda).c_str(), cudaText(s.runtimeCuda).c_str(),
+                            cudnnText(s.cudnn).c_str(), s.ortVersion.c_str(), s.torchVersion.c_str(),
                             s.syncMode == DSPTB_GPU_SYNC_BLOCKING ? "blocking" : "spin");
                 for (const GpuDevice& d : devices)
                     std::printf("  device %d%s: %s (cc %d.%d, %.1f GB, %.1f GB free)\n", d.index,
-                                d.index == s.selectedDevice ? " (selected)" : "", d.name.c_str(), d.ccMajor, d.ccMinor,
-                                gb(d.vramTotal), gb(d.vramFree));
+                                d.index == s.selectedDevice ? " (selected)" : "", d.name.c_str(), d.ccMajor,
+                                d.ccMinor, gb(d.vramTotal), gb(d.vramFree));
             }
         }
         exitCode = s.ok() ? 0 : 1;

@@ -20,35 +20,44 @@ namespace {
 
 constexpr double kRate = 48000.0;
 
-uint32_t ms(double v) { return static_cast<uint32_t>(std::lround(v * kRate / 1000.0)); }
+uint32_t ms(double v) {
+    return static_cast<uint32_t>(std::lround(v * kRate / 1000.0));
+}
 
 // y = 0.5 x for the hop, optionally slow, failing or late to load.
 class FakeStage : public Stage {
 public:
-    int sleepMs = 0;            // per run
+    int sleepMs = 0; // per run
     int prepareMs = 0;
-    int throwOnRun = -1;        // the 0-based run that throws
-    int stallOnRun = -1;        // this run sleeps stallMs
+    int throwOnRun = -1; // the 0-based run that throws
+    int stallOnRun = -1; // this run sleeps stallMs
     int stallMs = 0;
     bool throwOnPrepare = false;
     std::atomic<int> runs{0};
 
     void prepare() override {
-        if (prepareMs > 0) std::this_thread::sleep_for(std::chrono::milliseconds(prepareMs));
-        if (throwOnPrepare) throw std::runtime_error("no model file");
+        if (prepareMs > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(prepareMs));
+        if (throwOnPrepare)
+            throw std::runtime_error("no model file");
     }
     void run(const float* window, uint32_t windowFrames, float* out, uint32_t hop) override {
         const int n = runs.fetch_add(1);
-        if (n == throwOnRun) throw std::runtime_error("boom");
-        if (n == stallOnRun) std::this_thread::sleep_for(std::chrono::milliseconds(stallMs));
-        if (sleepMs > 0) std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
+        if (n == throwOnRun)
+            throw std::runtime_error("boom");
+        if (n == stallOnRun)
+            std::this_thread::sleep_for(std::chrono::milliseconds(stallMs));
+        if (sleepMs > 0)
+            std::this_thread::sleep_for(std::chrono::milliseconds(sleepMs));
         const float* hopStart = window + (windowFrames - hop - lookahead);
-        for (uint32_t k = 0; k < hop; ++k) out[k] = 0.5f * hopStart[k];
+        for (uint32_t k = 0; k < hop; ++k)
+            out[k] = 0.5f * hopStart[k];
     }
     uint32_t lookahead = 0; // the pipeline's lookahead, so the stage finds the hop inside the window
 };
 
-PipelineConfig config(double hopMs, double lookaheadMs = 0, double contextMs = 4, double budgetMs = 15, uint32_t block = 128) {
+PipelineConfig config(double hopMs, double lookaheadMs = 0, double contextMs = 4, double budgetMs = 15,
+                      uint32_t block = 128) {
     PipelineConfig c;
     c.sampleRate = kRate;
     c.hopFrames = ms(hopMs);
@@ -69,11 +78,13 @@ FakeStage* configure(Pipeline& p, const PipelineConfig& c, bool offline = false)
 
 void waitForState(const Pipeline& p, State s, int timeoutMs = 3000) {
     const auto end = Clock::now() + std::chrono::milliseconds(timeoutMs);
-    while (p.state() != s && Clock::now() < end) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    while (p.state() != s && Clock::now() < end)
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
-// The test thread plays the audio thread. `lockstep` waits after every block until the worker has finished every hop
-// that is complete, so the run is deterministic (no misses). `paced` instead spends real time per block.
+// The test thread plays the audio thread. `lockstep` waits after every block until the worker has finished
+// every hop that is complete, so the run is deterministic (no misses). `paced` instead spends real time per
+// block.
 struct Drive {
     bool lockstep = false;
     bool paced = false;
@@ -81,7 +92,8 @@ struct Drive {
     float dry = 0.0f;
 };
 
-std::vector<float> drive(Pipeline& p, const std::vector<float>& in, const Drive& d, const PipelineConfig& c, uint32_t startRunsOffset = 0) {
+std::vector<float> drive(Pipeline& p, const std::vector<float>& in, const Drive& d, const PipelineConfig& c,
+                         uint32_t startRunsOffset = 0) {
     std::vector<float> out(in.size());
     std::vector<float> dryBuf(d.block, d.dry);
     const auto t0 = Clock::now();
@@ -94,14 +106,17 @@ std::vector<float> drive(Pipeline& p, const std::vector<float>& in, const Drive&
         }
         if (d.lockstep) {
             const int64_t pushed = static_cast<int64_t>(pos + n);
-            const int64_t ready = std::max<int64_t>(0, (pushed - static_cast<int64_t>(c.lookaheadFrames)) / c.hopFrames);
+            const int64_t ready =
+                std::max<int64_t>(0, (pushed - static_cast<int64_t>(c.lookaheadFrames)) / c.hopFrames);
             const auto end = Clock::now() + std::chrono::seconds(3);
-            while (static_cast<int64_t>(p.stats().runs) - startRunsOffset < ready && p.state() == State::Running && Clock::now() < end)
+            while (static_cast<int64_t>(p.stats().runs) - startRunsOffset < ready &&
+                   p.state() == State::Running && Clock::now() < end)
                 std::this_thread::yield();
         }
         if (d.paced) {
             const auto due = t0 + std::chrono::duration<double>(static_cast<double>(pos + n) / kRate);
-            while (Clock::now() < due) std::this_thread::yield();
+            while (Clock::now() < due)
+                std::this_thread::yield();
         }
     }
     return out;
@@ -115,7 +130,9 @@ std::vector<float> impulseAt(size_t length, size_t at) {
 
 // The index of the loudest sample, and how much is outside it.
 size_t peakIndex(const std::vector<float>& v) {
-    return static_cast<size_t>(std::max_element(v.begin(), v.end(), [](float a, float b) { return std::fabs(a) < std::fabs(b); }) - v.begin());
+    return static_cast<size_t>(
+        std::max_element(v.begin(), v.end(), [](float a, float b) { return std::fabs(a) < std::fabs(b); }) -
+        v.begin());
 }
 
 } // namespace
@@ -139,7 +156,8 @@ TEST_CASE("offline: the impulse comes out exactly latencyFrames later, for hops 
                 CHECK(std::fabs(out[at + latency] - 0.5f) < 1e-6f);
                 float rest = 0;
                 for (size_t i = 0; i < out.size(); ++i)
-                    if (i != at + latency) rest = std::max(rest, std::fabs(out[i]));
+                    if (i != at + latency)
+                        rest = std::max(rest, std::fabs(out[i]));
                 CHECK(rest == 0.0f);
                 CHECK(p.stats().misses == 0);
             }
@@ -173,7 +191,8 @@ TEST_CASE("live and offline render the same noise sample for sample") {
     std::mt19937 rng(7);
     std::uniform_real_distribution<float> u(-1.0f, 1.0f);
     std::vector<float> noise(40000);
-    for (float& v : noise) v = u(rng);
+    for (float& v : noise)
+        v = u(rng);
     const PipelineConfig c = config(20, 10);
 
     Pipeline offline;
@@ -191,7 +210,8 @@ TEST_CASE("live and offline render the same noise sample for sample") {
     live.stop();
     REQUIRE(a.size() == b.size());
     size_t differing = 0;
-    for (size_t i = 0; i < a.size(); ++i) differing += a[i] != b[i];
+    for (size_t i = 0; i < a.size(); ++i)
+        differing += a[i] != b[i];
     CHECK(differing == 0);
     CHECK(live.stats().misses == 0);
 }
@@ -238,7 +258,8 @@ TEST_CASE("a stage slower than the budget gives counted misses and dry output") 
     CHECK(s.tooSlow);
     // After the fade the output is the dry signal, not silence and not the model.
     size_t dryCount = 0;
-    for (size_t i = out.size() / 2; i < out.size(); ++i) dryCount += std::fabs(out[i] - 0.25f) < 1e-6f;
+    for (size_t i = out.size() / 2; i < out.size(); ++i)
+        dryCount += std::fabs(out[i] - 0.25f) < 1e-6f;
     CHECK(dryCount > (out.size() / 2) * 8 / 10);
 }
 
@@ -289,14 +310,16 @@ TEST_CASE("reset() mid-stream restarts the timeline") {
         const PipelineConfig c = config(20, 5);
         configure(p, c, offline);
         p.start();
-        if (!offline) waitForState(p, State::Running);
+        if (!offline)
+            waitForState(p, State::Running);
         Drive d;
         d.lockstep = !offline;
         // Some audio first.
         std::mt19937 rng(3);
         std::uniform_real_distribution<float> u(-1.0f, 1.0f);
         std::vector<float> noise(7000);
-        for (float& v : noise) v = u(rng);
+        for (float& v : noise)
+            v = u(rng);
         drive(p, noise, d, c);
         p.reset();
         const uint32_t latency = p.latencyFrames();
@@ -351,14 +374,17 @@ TEST_CASE("a late hop is a short crossfade to dry and back, never a step") {
     d.paced = true;
     d.dry = 0.0f;
     std::vector<float> in(static_cast<size_t>(kRate * 0.6));
-    for (size_t i = 0; i < in.size(); ++i) in[i] = static_cast<float>(std::sin(2.0 * 3.14159265358979 * 500.0 * static_cast<double>(i) / kRate));
+    for (size_t i = 0; i < in.size(); ++i)
+        in[i] = static_cast<float>(std::sin(2.0 * 3.14159265358979 * 500.0 * static_cast<double>(i) / kRate));
     const auto out = drive(p, in, d, c);
     const Stats s = p.stats();
     p.stop();
     CHECK(s.misses >= 1);
-    // A 500 Hz sine of amplitude 0.5 moves at most 0.5 * 2 pi 500 / 48000 = 0.033 per sample; a fade adds little.
+    // A 500 Hz sine of amplitude 0.5 moves at most 0.5 * 2 pi 500 / 48000 = 0.033 per sample; a fade adds
+    // little.
     float worst = 0;
-    for (size_t i = 1; i < out.size(); ++i) worst = std::max(worst, std::fabs(out[i] - out[i - 1]));
+    for (size_t i = 1; i < out.size(); ++i)
+        worst = std::max(worst, std::fabs(out[i] - out[i - 1]));
     CHECK(worst < 0.06f);
     CHECK(s.consecutiveMisses < Pipeline::kTooSlowMisses); // it recovered
 }
@@ -374,7 +400,8 @@ TEST_CASE("the audio-thread calls do not allocate") {
         dsptb::rt::RtScope scope;
         p.push(in.data(), 256);
         p.pull(out.data(), 256, dry.data());
-        if (i == 100) p.reset();
+        if (i == 100)
+            p.reset();
     }
     CHECK(dsptb::rt::rtGuardViolations() == 0);
 }

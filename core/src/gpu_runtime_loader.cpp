@@ -37,13 +37,15 @@ void GpuRuntimeLoader::load(const GpuRuntimeRequest& req) {
 
     const fs::path dll = dir / "dsptb_gpu.dll";
     if (!fs::exists(dll, ec)) {
-        notInstalled(DSPTB_GPU_DLL_MISSING, "GPU runtime not installed (no dsptb_gpu.dll in " + state_.runtimeDir + ")");
+        notInstalled(DSPTB_GPU_DLL_MISSING,
+                     "GPU runtime not installed (no dsptb_gpu.dll in " + state_.runtimeDir + ")");
         return;
     }
-    HMODULE h = LoadLibraryExW(dll.c_str(), nullptr, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+    HMODULE h = LoadLibraryExW(dll.c_str(), nullptr,
+                               LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
     if (!h) {
-        notInstalled(DSPTB_GPU_DLL_MISSING,
-                     "dsptb_gpu.dll could not be loaded (Windows error " + std::to_string(GetLastError()) + ")");
+        notInstalled(DSPTB_GPU_DLL_MISSING, "dsptb_gpu.dll could not be loaded (Windows error " +
+                                                std::to_string(GetLastError()) + ")");
         return;
     }
     dll_ = h;
