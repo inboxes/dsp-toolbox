@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "test.gpu-probe",
+  "name": "GPU probe (test)",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "dsptb_test_gpu_probe.dll",
+  "modules": [{"id": "test.gpu-probe", "kind": "processor"}],
+  "requires": {"gpuRuntime": 1},
+  "author": "DSP Toolbox tests",
+  "license": "GPL-3.0-only",
+  "description": "Test fixture: runs a tiny network through the GPU pipeline (y = 0.5 x). Never packaged."
+}

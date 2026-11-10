@@ -28,6 +28,7 @@ void addProbeCommand(CLI::App& app, int& exitCode);
 void addLatencyCommand(CLI::App& app, int& exitCode);
 void addValidateCommand(CLI::App& app, int& exitCode);
 void addRenderCommand(CLI::App& app, int& exitCode);
+void addGpuInfoCommand(CLI::App& app, int& exitCode);
 
 // `analyze --module`: runs an analyzer module offline over a file and writes its frame dump.
 struct ModuleAnalyzeArgs {

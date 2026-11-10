@@ -419,6 +419,9 @@ void drawModuleBrowserPanel(ShellContext& ctx) {
                     else
                         ImGui::SetTooltip("This module cannot be used: %s", pkg.statusText.c_str());
                 }
+                // A module that cannot be used (for example one that needs the GPU runtime) is greyed out.
+                if (!addable)
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
                 ImGui::TableSetColumnIndex(1);
                 ImGui::TextUnformatted(!mm.name.empty()                  ? mm.name.c_str()
                                        : pkg.manifest.modules.size() == 1 ? pkg.manifest.name.c_str()
@@ -433,6 +436,8 @@ void drawModuleBrowserPanel(ShellContext& ctx) {
                 ImGui::TextUnformatted(pkg.manifest.version.c_str());
                 ImGui::TableSetColumnIndex(4);
                 ImGui::TextUnformatted(pkg.manifest.author.c_str());
+                if (!addable)
+                    ImGui::PopStyleColor();
                 ImGui::TableSetColumnIndex(5);
                 ImGui::TextColored(statusColor(pkg.status), "%s", statusLabel(pkg.status));
                 if (pkg.status != PackageStatus::Ok && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))

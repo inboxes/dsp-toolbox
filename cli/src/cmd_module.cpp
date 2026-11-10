@@ -2,6 +2,7 @@
 #include "commands.hpp"
 
 #include <dsptb/core/audio_io.hpp>
+#include <dsptb/core/gpu_runtime_loader.hpp>
 #include <dsptb/core/module_registry.hpp>
 #include <dsptb/core/module_validator.hpp>
 #include <dsptb/core/offline_analyze.hpp>
@@ -25,22 +26,26 @@ void addValidateCommand(CLI::App& app, int& exitCode) {
     auto* cmd = app.add_subcommand("validate", "Run the module conformance suite on a package folder or DLL");
     auto target = std::make_shared<std::string>();
     auto asJson = std::make_shared<bool>(false);
+    auto allowSkip = std::make_shared<bool>(false);
     cmd->add_option("package", *target, "Package folder (with module.json) or the module DLL")->required();
     cmd->add_flag("--json", *asJson, "Print JSON");
-    cmd->callback([&exitCode, target, asJson] {
+    cmd->add_flag("--allow-skip", *allowSkip,
+                  "A package that needs the GPU runtime, when it is not available, is SKIPPED and exits 0");
+    cmd->callback([&exitCode, target, asJson, allowSkip] {
         std::error_code ec;
         if (!fs::exists(fs::path(*target), ec)) {
             std::fprintf(stderr, "error: %s does not exist\n", target->c_str());
             exitCode = 2;
             return;
         }
+        loadGpuRuntimeFromSettings(); // before the package is added: gating needs the runtime status
         ModuleRegistry registry;
         const ValidationReport rep = validateModulePackage(registry, fs::path(*target));
         if (*asJson)
             std::cout << rep.toJson() << "\n";
         else
             std::cout << rep.toText();
-        exitCode = rep.passed() ? 0 : 1;
+        exitCode = rep.skipped ? (*allowSkip ? 0 : 1) : (rep.passed() ? 0 : 1);
     });
 }
 
@@ -93,6 +98,7 @@ void addRenderCommand(CLI::App& app, int& exitCode) {
         if (!decodeToStereo(inputPath, desc.sampleRate, input, error))
             return fail(error);
 
+        loadGpuRuntimeFromSettings();
         ModuleRegistry registry;
         std::vector<fs::path> folders{modulesDir()};
         for (const auto& d : *moduleDirs)
@@ -153,6 +159,7 @@ void runModuleAnalyze(const ModuleAnalyzeArgs& args, int& exitCode) {
     if (!decodeToStereo(args.input, args.sampleRate ? args.sampleRate : pcm.sampleRate, input, error))
         return fail(error);
 
+    loadGpuRuntimeFromSettings();
     ModuleRegistry registry;
     std::vector<fs::path> folders{modulesDir()};
     for (const auto& d : args.moduleDirs)

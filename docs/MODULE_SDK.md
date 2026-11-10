@@ -33,6 +33,7 @@ This is the contract between the host and every module, first-party or third-par
 - `id`: lowercase reverse-DNS, `[a-z0-9.-]`, unique and stable forever. First-party modules use `org.dsptb.*`. Use a prefix of your own for yours. For a single-module package, the package `id` equals the module `id`.
 - `version`: SemVer. `abi`: the integer ABI major version.
 - The host validates the manifest against the DLL's descriptors at load.
+- `requires` (optional): an object of things the module needs from the host. The only key this host knows is `gpuRuntime`, the minimum GPU runtime ABI number (`"requires": { "gpuRuntime": 1 }`, see [GPU_RUNTIME.md](GPU_RUNTIME.md)). The host loads such a module only when the GPU runtime is installed and working; otherwise its status is `Needs GPU runtime`, with the reason, and the Module Browser shows it greyed out. A key the host does not know makes the package `Incompatible` (`requires <key>, which this host doesn't know`).
 - `paramHelp` (optional): an object mapping a parameter `id` to a help sentence. The host shows it as a tooltip on that parameter's control in the generic parameter panel. It is not part of the ABI.
 
 ## 3. `plugin_abi.h` (ABI v1)
@@ -406,3 +407,42 @@ Not approved yet. Like §10.1 and §10.2 it would be an **append** to the end of
 - **Libraries that ship a DLL.** `dsptb_add_module(... DEPENDENCY_DLLS <dll>)` copies it into the package folder, which is on the DLL search path of the module (`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR`), and `EXTRA_FILES <paths>` copies licenses and notices next to it.
 - **Undo for custom UIs.** `mark_state_dirty` records one undo step per call, so a module that edits state while a slider or a dot is dragged should call it once when the edit has settled (the Spatializer waits 8 frames without edits).
 - **Hosts at higher sample rates.** A module that depends on a library with a fixed set of rates can run at a divisor of the host rate and convert (see `modules/spatializer/src/halfband.hpp`); the converters' delay belongs in `latency_frames`.
+
+## 12. GPU modules (development only)
+
+A module can run a neural network on an NVIDIA GPU through the GPU runtime in `gpu/` (design and numbers: [GPU_RUNTIME.md](GPU_RUNTIME.md)). The runtime is **dev-only for now**: it is built from source with `-DDSPTB_GPU_RUNTIME=ON` (preset `windows-release-gpu`), never packaged or released, and a release script refuses a GPU module. Without the runtime installed, a GPU module simply shows as unavailable.
+
+**Manifest.** Declare the need in `module.json`:
+```json
+"requires": { "gpuRuntime": 1 }
+```
+The number is the minimum GPU runtime ABI. The host loads the module only when the runtime is installed and working; otherwise the package status is `Needs GPU runtime` with the reason (no driver, driver too old for CUDA 13, a DLL missing, ...) and the Module Browser shows it greyed out. A `requires` key the host does not know makes the package `Incompatible`.
+
+**Licence.** The GPU runtime and `dsptb::gpu_sdk` (the `gpu/` folder) are MIT and core infrastructure. They are not covered by the closed-source permission in `MODULE-EXCEPTION.md`: a module that uses them is a module under a GPL-compatible licence. Changes to the runtime go into the public project.
+
+**Build.** Link `dsptb::gpu_sdk` (it brings ONNX Runtime, LibTorch and the CUDA headers; the module never imports `dsptb_gpu.dll`, the SDK finds the instance the host loaded). Build in Release (`/MD`): there is no Windows debug LibTorch. `gpu/test-module/` (`test.gpu-probe`) is a complete example: `dsptb_add_module(... LINK_LIBRARIES dsptb::gpu_sdk)` and the models as `ASSETS`.
+
+**Use.** Do not call ONNX Runtime, LibTorch or CUDA from your own threads. Give a `dsptb::gpu::Pipeline` a `Stage` and let it run the stage on its worker thread:
+```cpp
+dsptb::gpu::PipelineConfig cfg;           // rate, hop, context, lookahead, budget, max block
+pipe.setCaptureLock(dsptb::gpu::runtimeCaptureLock());
+pipe.configure(cfg, std::make_unique<dsptb::gpu::OrtStage>(model, window, hop), p.offline);   // prepare()
+pipe.start();                             // returns at once; the model loads on the worker
+// process():  pipe.push(mono, n);  pipe.pull(out, n, dryForMiss);
+// reset():    pipe.reset();   latency_frames(): pipe.latencyFrames();   destroy: pipe.stop() first
+```
+`OrtStage` and `TorchStage` run one model with an audio input `[1, 1, window]` and output `[1, 1, hop]`; for a chain of several networks, write a `Stage` that owns `OrtModel` and `TorchModel` objects (fixed shapes, CUDA graphs, pinned host buffers) and runs them in order on one `CudaStream`, with any CPU glue between them. Models for LibTorch are TorchScript files (`torch.jit.trace`).
+
+**Rules** (the RT guard and code review check the first two):
+1. `process()` calls only `Pipeline::push`, `pull` and `reset`. Never ONNX Runtime, LibTorch or CUDA.
+2. `draw()` never calls them either. It reads `stats()` and `state()`.
+3. `prepare()` calls `Pipeline::configure` and `start`. The heavy work (loading, warm-up, graph capture) happens on the worker: `state()` is `Loading` until it is done, the audio runs on your dry signal meanwhile, and `latency_frames()` is the same before and after.
+4. `latency_frames()` returns `pipeline.latencyFrames()` (plus any resampler delay of your own). It is constant until the next `prepare`.
+5. A setting that changes shapes (hop, window, lookahead, model) is read in `prepare()` only, never changed live.
+6. `destroy()` calls `stop()` first, which joins the worker before any model or CUDA object is freed. A stage frees its own CUDA and model objects in `Stage::teardown()`, which the pipeline calls on the worker thread that created them.
+7. Choose the compute budget with headroom: `budgetFrames >= compute p99 + 2 audio blocks + 1 ms`, and look at the maximum too (a graphed model with a 5 ms p99 had an 8-9 ms maximum, and 15 ms was too tight).
+8. A miss (a result that is not ready when due) plays your dry signal through a 5 ms equal-power crossfade and is counted in `stats().misses`; ten in a row set `stats().tooSlow`, which you should show to the user.
+
+**Validation.** `dsptb-cli validate <package> --allow-skip` prints `SKIPPED: needs the GPU runtime (<reason>)` and exits 0 when the runtime is missing, so a build without a GPU still passes. With the runtime it runs the normal suite; the memory check for a GPU module warms up longer and allows 16 MB, because CUDA, cuDNN and kernels load lazily.
+
+**Other tips.** Hold the capture lock (`ScopedCapture`) only around a CUDA graph capture, never around a model load. Run inference on the worker, not on the UI thread. Do not copy a model into the repository; keep it next to your module.

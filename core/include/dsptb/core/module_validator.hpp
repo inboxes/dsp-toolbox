@@ -28,6 +28,10 @@ struct ValidationReport {
     std::vector<ModuleValidation> modules;
     uint32_t rtGuardHits = 0;
     bool rtGuardActive = false; // the module exports the guard counter and the host build enables it
+    // The package needs something this machine lacks (the GPU runtime), so it was not loaded or run. Not a pass
+    // and not a failure: `dsptb-cli validate --allow-skip` exits 0 for it.
+    bool skipped = false;
+    std::string skipReason;
     bool passed() const;
     std::string toJson() const;
     std::string toText() const;

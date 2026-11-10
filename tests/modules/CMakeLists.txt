@@ -11,3 +11,11 @@ dsptb_add_module(dsptb_test_abi_mismatch ID test.abimismatch TEST_MODULE
 # A real PRIVATE_MODULE, so package_contents proves that private modules stay out of the packages.
 dsptb_add_module(dsptb_test_private ID test.private PRIVATE_MODULE
   MANIFEST private/module.json SOURCES private/private.cpp)
+# Manifests that need the GPU runtime (docs/GPU_RUNTIME.md section 9.1). They reuse a DLL that is never loaded:
+# a package that is gated or incompatible is not loaded at all.
+dsptb_add_module(dsptb_test_gpu_gated ID test.gpu-gated TEST_MODULE
+  MANIFEST gpu_gated/module.json SOURCES abi_mismatch/abi_mismatch.cpp)
+dsptb_add_module(dsptb_test_gpu_future_abi ID test.gpu-future-abi TEST_MODULE
+  MANIFEST gpu_future_abi/module.json SOURCES abi_mismatch/abi_mismatch.cpp)
+dsptb_add_module(dsptb_test_gpu_unknown_requires ID test.gpu-unknown-requires TEST_MODULE
+  MANIFEST gpu_unknown_requires/module.json SOURCES abi_mismatch/abi_mismatch.cpp)

@@ -5,6 +5,7 @@
 #include <CLI/CLI.hpp>
 
 #include <dsptb/branding.h>
+#include <dsptb/core/gpu_runtime_loader.hpp>
 #include <dsptb/core/version.hpp>
 #include <dsptb/rt/rt_guard.hpp>
 
@@ -32,7 +33,9 @@ int main(int argc, char** argv) {
     dsptb::cli::addLatencyCommand(app, exitCode);
     dsptb::cli::addValidateCommand(app, exitCode);
     dsptb::cli::addRenderCommand(app, exitCode);
+    dsptb::cli::addGpuInfoCommand(app, exitCode);
 
     CLI11_PARSE(app, argc, argv);
+    dsptb::GpuRuntimeLoader::instance().shutdown();
     return exitCode;
 }

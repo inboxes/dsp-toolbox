@@ -26,7 +26,7 @@ bool ModuleValidation::passed() const {
 }
 
 bool ValidationReport::passed() const {
-    return std::all_of(packageChecks.begin(), packageChecks.end(),
+    return !skipped && std::all_of(packageChecks.begin(), packageChecks.end(),
                        [](const ValidationCheck& c) { return c.passed; }) &&
            std::all_of(modules.begin(), modules.end(),
                        [](const ModuleValidation& m) { return m.passed(); }) &&
@@ -208,8 +208,15 @@ void checkProcessor(ModulePackage& pkg, const dsptb_module_desc& d, std::vector<
     }
 
     // --- create/destroy 50x, memory growth under 1 MB ---
+    // A module that needs the GPU runtime loads CUDA, cuDNN and kernel modules lazily on first use. That shows up as a
+    // one-time step of tens to hundreds of MB (measured: ORT, 200 MB, reached within 25 cycles), not as a leak per
+    // instance. So such a module gets a longer warm-up and a looser bound. Only a real leak per instance grows with
+    // the number of cycles.
     {
-        for (int i = 0; i < 5; ++i) { // warm up allocators and lazy statics first
+        const bool gpu = pkg.manifest.requiresGpuRuntime > 0;
+        const int warmUp = gpu ? 40 : 5;
+        const double limitMb = gpu ? 16.0 : 1.0;
+        for (int i = 0; i < warmUp; ++i) { // warm up allocators and lazy statics first
             auto m = make(pkg, d, host, err);
             if (m)
                 m->prepare(48000.0, 256, false, err);
@@ -222,7 +229,9 @@ void checkProcessor(ModulePackage& pkg, const dsptb_module_desc& d, std::vector<
         }
         const size_t after = privateBytes();
         const double grewMb = (static_cast<double>(after) - static_cast<double>(before)) / (1024.0 * 1024.0);
-        chk.add("create/destroy x50 does not leak (< 1 MB growth)", created && grewMb < 1.0,
+        chk.add(gpu ? "create/destroy x50 does not leak (< 16 MB growth after a longer warm-up)"
+                    : "create/destroy x50 does not leak (< 1 MB growth)",
+                created && grewMb < limitMb,
                 created ? "private bytes grew by " + std::to_string(grewMb) + " MB"
                         : "create/prepare failed: " + err);
     }
@@ -695,6 +704,11 @@ ValidationReport validateModulePackage(ModuleRegistry& registry, const fs::path&
     }
     rep.packageId = pkg->manifest.id;
     pkgChk.add("manifest (module.json)", true);
+    if (pkg->status == PackageStatus::NeedsGpuRuntime) {
+        rep.skipped = true;
+        rep.skipReason = pkg->statusText;
+        return rep;
+    }
     if (!fs::is_directory(target, ec) && fs::path(target).filename() != fs::path(pkg->manifest.dll)) {
         pkgChk.add("DLL named in module.json", false,
                    "module.json names " + pkg->manifest.dll + ", but " + target.filename().string() +
@@ -757,7 +771,10 @@ std::string ValidationReport::toText() const {
     }
     if (rtGuardActive || rtGuardHits)
         os << "  RT guard hits: " << rtGuardHits << (rtGuardHits ? "  [FAIL]\n" : "\n");
-    os << (passed() ? "PASS" : "FAIL") << "\n";
+    if (skipped)
+        os << "SKIPPED: needs the GPU runtime (" << skipReason << ")\n";
+    else
+        os << (passed() ? "PASS" : "FAIL") << "\n";
     return os.str();
 }
 
@@ -766,6 +783,9 @@ std::string ValidationReport::toJson() const {
     j["path"] = path;
     j["package"] = packageId;
     j["passed"] = passed();
+    j["skipped"] = skipped;
+    if (skipped)
+        j["skipReason"] = skipReason;
     j["rtGuardActive"] = rtGuardActive;
     j["rtGuardHits"] = rtGuardHits;
     const auto checks = [](const std::vector<ValidationCheck>& v) {

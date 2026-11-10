@@ -11,9 +11,11 @@
 
 namespace dsptb {
 
-enum class PackageStatus { Ok, IncompatibleAbi, FailedToLoad, Faulted };
+// NeedsGpuRuntime: the manifest requires the GPU runtime and it is missing or not working (the reason is in
+// statusText). Incompatible: the manifest asks for something this host doesn't know.
+enum class PackageStatus { Ok, IncompatibleAbi, FailedToLoad, Faulted, NeedsGpuRuntime, Incompatible };
 
-const char* statusLabel(PackageStatus s); // "OK", "Incompatible ABI", "Failed to load", "Faulted"
+const char* statusLabel(PackageStatus s); // "OK", "Incompatible ABI", "Failed to load", "Faulted", "Needs GPU runtime", "Incompatible"
 
 // One module package folder (MODULE_SDK §2). Created by a scan without loading the DLL; the DLL is loaded the
 // first time a module from it is needed and then stays loaded until exit.

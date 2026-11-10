@@ -3,7 +3,9 @@
 #include "session_ui.hpp"
 #include "shell_internal.hpp"
 
+#include <dsptb/core/gpu_runtime_loader.hpp>
 #include <dsptb/core/paths.hpp>
+#include <dsptb/core/settings.hpp>
 
 #include <Windows.h>
 #include <shellapi.h>
@@ -433,6 +435,76 @@ bool deviceCombo(const char* label, std::string& id, const std::vector<DeviceInf
     return changed;
 }
 
+// The GPU runtime (docs/GPU_RUNTIME.md section 6.5). Device and sync mode are saved in the settings and apply
+// after a restart, because the CUDA context is created once per process.
+void drawGpuSection(ShellContext& ctx) {
+    const GpuRuntimeLoader& rt = GpuRuntimeLoader::instance();
+    const GpuRuntimeState& st = rt.state();
+    Settings& set = *ctx.settings;
+    ImGui::Separator();
+    ImGui::TextUnformatted("GPU");
+    if (st.ok()) {
+        ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.50f, 1.0f), "Runtime OK");
+        ImGui::SameLine();
+        ImGui::TextDisabled("(for modules that run neural networks)");
+    } else {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f), "Runtime not available");
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 440.0f * dpiScale());
+        ImGui::TextWrapped("%s", st.statusText.c_str());
+        ImGui::PopTextWrapPos();
+    }
+    if (st.ok()) {
+        const std::vector<GpuDevice> devices = rt.devices();
+        std::string current = "Device " + std::to_string(set.gpu.device);
+        for (const GpuDevice& d : devices)
+            if (d.index == set.gpu.device)
+                current = d.name;
+        if (ImGui::BeginCombo("GPU device", current.c_str())) {
+            for (const GpuDevice& d : devices) {
+                const std::string label = d.name + "  (cc " + std::to_string(d.ccMajor) + "." + std::to_string(d.ccMinor) + ")";
+                if (ImGui::Selectable(label.c_str(), d.index == set.gpu.device))
+                    set.gpu.device = d.index;
+            }
+            ImGui::EndCombo();
+        }
+        for (const GpuDevice& d : devices)
+            if (d.index == st.selectedDevice)
+                ImGui::TextDisabled("VRAM: %.1f GB total, %.1f GB free", static_cast<double>(d.vramTotal) / 1073741824.0,
+                                    static_cast<double>(d.vramFree) / 1073741824.0);
+        ImGui::TextDisabled("Driver CUDA %d.%d, runtime CUDA %d.%d, cuDNN %d.%d", st.driverCuda / 1000,
+                            st.driverCuda % 1000 / 10, st.runtimeCuda / 1000, st.runtimeCuda % 1000 / 10,
+                            st.cudnn / 10000, st.cudnn % 10000 / 100);
+        ImGui::TextDisabled("ONNX Runtime %s, LibTorch %s", st.ortVersion.c_str(), st.torchVersion.c_str());
+    }
+    if (st.ok() || st.dllFound) {
+        const bool blocking = set.gpu.sync != "spin";
+        if (ImGui::BeginCombo("GPU wait mode", blocking ? "Blocking (recommended)" : "Spin")) {
+            if (ImGui::Selectable("Blocking (recommended)", blocking))
+                set.gpu.sync = "blocking";
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The CPU sleeps while the GPU works. Costs nothing measurable and frees a CPU core.");
+            if (ImGui::Selectable("Spin", !blocking))
+                set.gpu.sync = "spin";
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The CPU busy-waits. Wakes up a little sooner but keeps a core at 100 %% while a GPU module runs.");
+            ImGui::EndCombo();
+        }
+        const bool pending = st.ok() && ((set.gpu.sync == "spin") != (st.syncMode == DSPTB_GPU_SYNC_SPIN) ||
+                                         set.gpu.device != st.selectedDevice);
+        if (pending)
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.35f, 1.0f), "Restart to apply.");
+    }
+    ImGui::TextDisabled("Runtime folder: %s", st.runtimeDir.c_str());
+    if (ImGui::SmallButton("Open folder")) {
+        std::error_code ec;
+        const std::filesystem::path dir = fromUtf8(st.runtimeDir);
+        if (std::filesystem::is_directory(dir, ec))
+            ShellExecuteW(nullptr, L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        else
+            notify(ctx, NoticeLevel::Warning, "The GPU runtime folder does not exist.");
+    }
+}
+
 } // namespace
 
 void drawAudioSettingsWindow(ShellContext& ctx) {
@@ -595,6 +667,7 @@ void drawAudioSettingsWindow(ShellContext& ctx) {
             ImGui::TextDisabled("No audio stream is open.");
         if (!ctx.devicesLoaded)
             ImGui::TextDisabled("The audio system could not be queried.");
+        drawGpuSection(ctx);
 #ifdef DSPTB_HAS_ASIO
         // This dialog is where ASIO gets switched on, so Steinberg's guidelines put the logo here in every
         // state.

@@ -16,6 +16,7 @@ Source (Mic | File) ─► PRE tap ─► [P1] ─► [P2] ─► … ─► [Pn
 | `cli/` | `dsptb-cli.exe` | Test signals, analysis, offline render, module validation, benchmarks. |
 | `modules/` | Module DLLs | First-party modules, built the same way as third-party ones. |
 | `modules/common/` | Static libraries | Shared DSP maths: FFT, loudness, pitch, key detection, pitch shifting and more. |
+| `gpu/` | `dsptb_gpu.dll`, `dsptb_gpu_sdk`, `dsptb_gpu_pipeline`, `dsptb-gpu-bench.exe`, test module `test.gpu-probe` | GPU runtime for modules that run neural networks: ONNX Runtime and LibTorch on CUDA, with CUDA graphs. MIT. Built only with `DSPTB_GPU_RUNTIME=ON` (the latency pipeline and its tests always build), development only, never packaged or released. The host reaches it only through `gpu/include/dsptb/gpu_runtime.h`: `core/src/gpu_runtime_loader.*` loads it at startup before the module scan, and a CMake check and the `licence_boundary` test keep CUDA, ONNX Runtime and LibTorch out of the host. See [GPU_RUNTIME.md](GPU_RUNTIME.md). |
 | `tools/`, `tests/` | | Build and release scripts; unit and integration tests. |
 
 ## Threads

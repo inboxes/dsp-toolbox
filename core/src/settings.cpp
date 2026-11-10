@@ -39,6 +39,7 @@ std::string Settings::toJsonString() const {
                   {"outputDeviceId", audio.outputDeviceId},
                   {"sampleRate", audio.sampleRate},
                   {"bufferFrames", audio.bufferFrames}};
+    j["gpu"] = {{"runtimeDir", gpu.runtimeDir}, {"device", gpu.device}, {"sync", gpu.sync}};
     j["micMonitorWarningShown"] = micMonitorWarningShown;
     j["micGateEnabled"] = micGateEnabled;
     j["micGateThresholdDb"] = micGateThresholdDb;
@@ -72,6 +73,11 @@ bool Settings::fromJsonString(const std::string& text) {
         s.audio.outputDeviceId = it->value("outputDeviceId", std::string{});
         s.audio.sampleRate = it->value("sampleRate", s.audio.sampleRate);
         s.audio.bufferFrames = it->value("bufferFrames", s.audio.bufferFrames);
+    }
+    if (auto it = j.find("gpu"); it != j.end() && it->is_object()) {
+        s.gpu.runtimeDir = it->value("runtimeDir", std::string{});
+        s.gpu.device = std::max(0, it->value("device", 0));
+        s.gpu.sync = it->value("sync", std::string("blocking")) == "spin" ? "spin" : "blocking";
     }
     s.micMonitorWarningShown = j.value("micMonitorWarningShown", false);
     s.micGateEnabled = j.value("micGateEnabled", false);

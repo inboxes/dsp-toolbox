@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "test.gpu-future-abi",
+  "name": "GPU future ABI (test)",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "dsptb_test_gpu_future_abi.dll",
+  "modules": [{"id": "test.gpu-future-abi", "kind": "processor"}],
+  "requires": {"gpuRuntime": 2},
+  "author": "DSP Toolbox tests",
+  "license": "GPL-3.0-only",
+  "description": "Test fixture: needs the GPU runtime, ABI 2. Its DLL is never meant to run."
+}

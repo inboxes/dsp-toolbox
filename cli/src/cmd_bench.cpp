@@ -4,6 +4,7 @@
 #include <dsptb/core/analysis.hpp>
 #include <dsptb/core/audio_io.hpp>
 #include <dsptb/core/engine.hpp>
+#include <dsptb/core/gpu_runtime_loader.hpp>
 #include <dsptb/core/module_registry.hpp>
 #include <dsptb/core/offline_render.hpp>
 #include <dsptb/core/paths.hpp>
@@ -75,6 +76,7 @@ int runBench(const BenchOptions& o) {
         std::fprintf(stderr, "error: cannot determine the executable's folder\n");
         return 2;
     }
+    loadGpuRuntimeFromSettings();
     ModuleRegistry registry;
     {
         std::vector<fs::path> folders{modulesDir()};
