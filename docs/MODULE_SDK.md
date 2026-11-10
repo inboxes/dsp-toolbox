@@ -418,6 +418,8 @@ A module can run a neural network on an NVIDIA GPU through the GPU runtime in `g
 ```
 The number is the minimum GPU runtime ABI. The host loads the module only when the runtime is installed and working; otherwise the package status is `Needs GPU runtime` with the reason (no driver, driver too old for CUDA 13, a DLL missing, ...) and the Module Browser shows it greyed out. A `requires` key the host does not know makes the package `Incompatible`.
 
+**Licence.** The GPU runtime and `dsptb::gpu_sdk` (the `gpu/` folder) are MIT and core infrastructure. They are not covered by the closed-source permission in `MODULE-EXCEPTION.md`: a module that uses them is a module under a GPL-compatible licence. Changes to the runtime go into the public project.
+
 **Build.** Link `dsptb::gpu_sdk` (it brings ONNX Runtime, LibTorch and the CUDA headers; the module never imports `dsptb_gpu.dll`, the SDK finds the instance the host loaded). Build in Release (`/MD`): there is no Windows debug LibTorch. `gpu/test-module/` (`test.gpu-probe`) is a complete example: `dsptb_add_module(... LINK_LIBRARIES dsptb::gpu_sdk)` and the models as `ASSETS`.
 
 **Use.** Do not call ONNX Runtime, LibTorch or CUDA from your own threads. Give a `dsptb::gpu::Pipeline` a `Stage` and let it run the stage on its worker thread:

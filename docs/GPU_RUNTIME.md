@@ -41,7 +41,7 @@ You don't need to read the sources to build this. This explains the choices.
 - **DLL loading on Windows.** cuDNN 9 loads its engine sub-libraries by name at run time, so they must be findable. The Python benchmark found that the **load order matters**: loading cuDNN's engine DLLs before nvrtc/nvJitLink fails with error 127. §6.2 gives the working order.
 - **Debug builds.** PyTorch stopped publishing Windows **debug** LibTorch zips at 2.12.1. A module built with the debug CRT (`/MDd`) can't use the release LibTorch C++ API safely (STL types cross the boundary). So everything that links LibTorch builds as **Release** (`/MD`), even when the rest of the tree is Debug. ORT's C API doesn't have this problem, but we keep one rule for both (§8.4).
 - **Blocking vs spinning.** By default CUDA spins a CPU core while waiting for the GPU. The Python ORT stream test used 45–91 % of one core. `cudaDeviceScheduleBlockingSync` sleeps instead, at the cost of some wake-up delay. §10 has the measurement.
-- **Licensing.** The host is GPLv3 with a module exception (`MODULE-EXCEPTION.md`). CUDA, cuDNN and cuBLAS are proprietary NVIDIA libraries. Keeping every CUDA-linked binary out of the GPL host (in the MIT `gpu/` folder, reached through a C ABI) keeps the host clean. The exception text currently names only `plugin_abi.h`, so it needs one sentence for the new C header (§12, **the maintainer approves the wording**).
+- **Licensing.** The host is GPLv3 with a module exception (`MODULE-EXCEPTION.md`). CUDA, cuDNN and cuBLAS are proprietary NVIDIA libraries. Keeping every CUDA-linked binary out of the GPL host (in the MIT `gpu/` folder, reached through a C ABI) keeps the host clean. The GPU runtime is core infrastructure and stays open source: it is **not** covered by the closed-source module permission in `MODULE-EXCEPTION.md`, and that file is not changed for it (§12).
 
 ## 4. Overview
 
@@ -383,7 +383,6 @@ Three questions were answered by measurement before the production code was writ
 
 **Manual checks for the maintainer:**
 - [ ] Approve the pinned runtime set (versions, size, any extra install).
-- [ ] Approve the `MODULE-EXCEPTION.md` wording (§12).
 - [ ] Run a game while `dsptb-gpu-bench --paced-hop-ms 40 --seconds 300` runs with the chain configs: does the game's frame rate drop? Does p99 stay under budget?
 - [ ] Look at the GPU settings screenshot.
 
@@ -391,7 +390,7 @@ Three questions were answered by measurement before the production code was writ
 
 - `gpu/` is **MIT** (`gpu/LICENSE`, copyright the project maintainer). It's the maintainer's own code; no contributor code from `modules/common` goes into it.
 - `gpu/include/dsptb/gpu_runtime.h` is MIT and pure C. The GPL host may include it (MIT is GPL-compatible).
-- **Proposed one-sentence addition to `MODULE-EXCEPTION.md`** (the maintainer approves the exact text before it's committed; the builder shows the diff, as with ABI changes): add to the definition of a Module, "The GPU runtime in `gpu/`, which the host reaches only through `gpu/include/dsptb/gpu_runtime.h`, is treated the same way." The maintainer decides whether this is needed at all, since nothing is distributed yet.
+- **`MODULE-EXCEPTION.md` does not change** (maintainer's decision, 2026-11-09). The GPU runtime is core app infrastructure and stays open source. The closed-source module permission covers modules that use only `plugin_abi.h` and the SDK package; it does not extend to `gpu/` or `gpu_runtime.h`. An author who wants different terms for GPU code contributes to the public project.
 - No NVIDIA, ORT or LibTorch file is committed or released in M10. When public distribution is designed later, the cuDNN and CUDA licence terms for redistribution apply (notices, passing down terms); that's a separate decision.
 
 ## 13. Risks
