@@ -68,6 +68,9 @@ struct Stats {
     uint64_t runs = 0;             // inferences completed
     uint64_t misses = 0;           // hops whose result was not ready when due (dry output used)
     uint32_t consecutiveMisses = 0;
+    uint32_t workerWakeLateMaxUs = 0; // worst delay of the worker waking from its 1 ms wait (OS scheduling)
+    uint32_t computeAllTimeMaxUs = 0; // worst single run since start (computeMaxUs covers only the latest runs)
+    uint32_t hopTotalMaxUs = 0;       // worst time of a whole hop on the worker: window copy, lock wait and run
     uint64_t lastMissFrame = 0;    // output frame (since the last reset) of the latest miss, for diagnosis
     uint32_t computeP50Us = 0, computeP99Us = 0, computeMaxUs = 0; // rolling, the last 512 runs
     bool tooSlow = false;          // 10 or more consecutive misses
@@ -211,6 +214,9 @@ public:
         s.misses = misses_.load(std::memory_order_relaxed);
         s.consecutiveMisses = consecutive_.load(std::memory_order_relaxed);
         s.lastMissFrame = lastMissFrame_.load(std::memory_order_relaxed);
+        s.workerWakeLateMaxUs = wakeLateMax_.load(std::memory_order_relaxed);
+        s.hopTotalMaxUs = hopTotalMax_.load(std::memory_order_relaxed);
+        s.computeAllTimeMaxUs = computeAllMax_.load(std::memory_order_relaxed);
         s.computeP50Us = p50_.load(std::memory_order_relaxed);
         s.computeP99Us = p99_.load(std::memory_order_relaxed);
         s.computeMaxUs = max_.load(std::memory_order_relaxed);
@@ -250,6 +256,9 @@ private:
         consecutive_.store(0);
         misses_.store(0);
         runs_.store(0);
+        wakeLateMax_.store(0);
+        hopTotalMax_.store(0);
+        computeAllMax_.store(0);
         p50_.store(0);
         p99_.store(0);
         max_.store(0);
@@ -323,6 +332,7 @@ private:
 
     // Builds the window for hop `hop`, runs the stage and publishes the result. Returns false when the stage threw.
     bool processHop(int64_t hop, uint32_t epoch) {
+        const int64_t hopStart = nowMicros();
         const int64_t start = hop * cfg_.hopFrames - static_cast<int64_t>(cfg_.contextFrames);
         for (uint32_t k = 0; k < window_; ++k) {
             const int64_t f = start + k;
@@ -349,6 +359,7 @@ private:
             return false;
         }
         const int64_t us = nowMicros() - t0;
+        if (us > static_cast<int64_t>(computeAllMax_.load(std::memory_order_relaxed))) computeAllMax_.store(static_cast<uint32_t>(us), std::memory_order_relaxed);
         if (epoch_.load(std::memory_order_acquire) == epoch) {
             Slot& s = slots_[static_cast<size_t>(hop % nSlots_)];
             s.tag.store(-1, std::memory_order_release);
@@ -356,6 +367,8 @@ private:
             s.tag.store(makeTag(epoch, hop), std::memory_order_release);
         }
         recordCompute(us);
+        const int64_t total = nowMicros() - hopStart;
+        if (total > static_cast<int64_t>(hopTotalMax_.load(std::memory_order_relaxed))) hopTotalMax_.store(static_cast<uint32_t>(total), std::memory_order_relaxed);
         return true;
     }
 
@@ -414,7 +427,10 @@ private:
             const int64_t in = inCount_.load(std::memory_order_acquire);
             const int64_t needed = (nextHopWorker_ + 1) * cfg_.hopFrames + cfg_.lookaheadFrames;
             if (in < needed) {
+                const int64_t w0 = nowMicros();
                 timer.wait(1000);
+                const int64_t late = nowMicros() - w0 - 1000;
+                if (late > 0 && late > static_cast<int64_t>(wakeLateMax_.load(std::memory_order_relaxed))) wakeLateMax_.store(static_cast<uint32_t>(late), std::memory_order_relaxed);
                 continue;
             }
             // A hop whose frames were all output already (a late worker) is dropped, not computed.
@@ -452,6 +468,7 @@ private:
     std::atomic<uint64_t> runs_{0}, misses_{0};
     std::atomic<uint32_t> consecutive_{0}, p50_{0}, p99_{0}, max_{0};
     std::atomic<uint64_t> lastMissFrame_{0};
+    std::atomic<uint32_t> wakeLateMax_{0}, hopTotalMax_{0}, computeAllMax_{0};
     std::atomic<bool> graphed_{false};
     mutable std::mutex errorMutex_;
     std::string error_;

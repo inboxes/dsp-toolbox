@@ -139,6 +139,9 @@ public:
         j["p50Us"] = s.computeP50Us;
         j["p99Us"] = s.computeP99Us;
         j["maxUs"] = s.computeMaxUs;
+        j["wakeLateMaxUs"] = s.workerWakeLateMaxUs;
+        j["hopTotalMaxUs"] = s.hopTotalMaxUs;
+        j["computeAllMaxUs"] = s.computeAllTimeMaxUs;
         j["tooSlow"] = s.tooSlow;
         j["graphed"] = s.graphed;
         j["latencyFrames"] = pipe_.latencyFrames();
