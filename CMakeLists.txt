@@ -11,6 +11,9 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib")
 
 option(DSPTB_RT_GUARD "Enable the audio-thread allocation guard" OFF)
 option(DSPTB_BUILD_TESTS "Build unit tests" ON)
+# GPU runtime (ONNX Runtime + LibTorch on CUDA 13) for modules that run neural networks. Release builds only, dev-only:
+# never packaged. See gpu/README.md and docs/GPU_RUNTIME.md.
+option(DSPTB_GPU_RUNTIME "Build the GPU runtime in gpu/ (downloads about 4 GB of NVIDIA, ONNX Runtime and LibTorch archives)" OFF)
 # Semicolon list of folders outside the repo whose subfolders are extra (private) modules.
 set(DSPTB_EXTRA_MODULE_DIRS "" CACHE STRING "Folders with extra module sources, built like first-party modules")
 
@@ -90,8 +93,10 @@ add_library(dsptb_core STATIC
   core/src/offline_render.cpp
   core/src/recording_canvas.cpp
   core/src/module_validator.cpp
-  core/src/module_install.cpp)
-target_include_directories(dsptb_core PUBLIC "${CMAKE_SOURCE_DIR}/core/include")
+  core/src/module_install.cpp
+  core/src/gpu_runtime_loader.cpp)
+# dsptb/gpu_runtime.h is the one GPU header host code may include (plain C, MIT).
+target_include_directories(dsptb_core PUBLIC "${CMAKE_SOURCE_DIR}/core/include" "${CMAKE_SOURCE_DIR}/gpu/include")
 
 # --- Optional ASIO backend. Off by default: the SDK is downloaded
 #     (tools/fetch-asio-sdk.ps1), never committed. The project is GPLv3, like the SDK's GPL option. ---
@@ -139,7 +144,7 @@ target_link_libraries(DSPToolbox PRIVATE dsptb_core imgui::imgui d3d11 dxgi d3dc
   dsptb_warnings)
 
 # --- CLI ---
-add_executable(dsptb-cli cli/src/main.cpp cli/src/cmd_basic.cpp cli/src/cmd_bench.cpp cli/src/cmd_probe.cpp cli/src/cmd_latency.cpp cli/src/cmd_module.cpp)
+add_executable(dsptb-cli cli/src/main.cpp cli/src/cmd_basic.cpp cli/src/cmd_bench.cpp cli/src/cmd_probe.cpp cli/src/cmd_latency.cpp cli/src/cmd_module.cpp cli/src/cmd_gpu.cpp)
 target_link_libraries(dsptb-cli PRIVATE dsptb_core CLI11::CLI11 dsptb_warnings)
 
 # --- Modules ---
@@ -163,11 +168,35 @@ foreach(extra_dir IN LISTS DSPTB_EXTRA_MODULE_DIRS)
   endforeach()
 endforeach()
 
+# --- GPU runtime: its own tree, MIT, never linked into the host ---
+if(EXISTS "${CMAKE_SOURCE_DIR}/gpu/CMakeLists.txt")
+  add_subdirectory(gpu)
+endif()
+
 # --- Tests ---
 if(DSPTB_BUILD_TESTS)
   enable_testing()
   add_subdirectory(tests)
+  add_test(NAME package_guard COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+    -File "${CMAKE_SOURCE_DIR}/tools/check-package-guard.ps1")
+  add_test(NAME licence_boundary COMMAND powershell -NoProfile -ExecutionPolicy Bypass
+    -File "${CMAKE_SOURCE_DIR}/tools/check-licence-boundary.ps1" -Root "${CMAKE_SOURCE_DIR}")
 endif()
+
+# --- Licence boundary (docs/GPU_RUNTIME.md section 8.4): the GPL host must not link any GPU runtime library. ---
+foreach(_host_target DSPToolbox dsptb-cli dsptb_core)
+  foreach(_prop LINK_LIBRARIES INTERFACE_LINK_LIBRARIES)
+    get_target_property(_host_libs ${_host_target} ${_prop})
+    if(_host_libs)
+      foreach(_lib IN LISTS _host_libs)
+        if(_lib MATCHES "GpuRuntime::|dsptb_gpu|(^|/)(torch|torch_cpu|torch_cuda|c10|c10_cuda|onnxruntime|cudart|cudnn|cublas)(.lib)?$")
+          message(FATAL_ERROR "Licence boundary: ${_host_target} links '${_lib}'. Host code may only load the GPU runtime "
+            "at run time through gpu/include/dsptb/gpu_runtime.h (docs/GPU_RUNTIME.md section 8.4).")
+        endif()
+      endforeach()
+    endif()
+  endforeach()
+endforeach()
 
 # --- Release packages. After everything else, so every module is known. ---
 include(Packaging)

@@ -1,5 +1,6 @@
 #include "dsptb/core/module_registry.hpp"
 
+#include "dsptb/core/gpu_runtime_loader.hpp"
 #include "dsptb/core/seh_guard.hpp"
 
 #include <spdlog/spdlog.h>
@@ -25,6 +26,10 @@ const char* statusLabel(PackageStatus s) {
         return "Failed to load";
     case PackageStatus::Faulted:
         return "Faulted";
+    case PackageStatus::NeedsGpuRuntime:
+        return "Needs GPU runtime";
+    case PackageStatus::Incompatible:
+        return "Incompatible";
     }
     return "?";
 }
@@ -202,6 +207,20 @@ ModulePackage* ModuleRegistry::addPackage(const fs::path& folder, std::string& e
     } else if (!fs::exists(folder / pkg->manifest.dll)) {
         pkg->status = PackageStatus::FailedToLoad;
         pkg->statusText = pkg->manifest.dll + " is missing from the package folder";
+    } else if (!pkg->manifest.requiresUnknown.empty()) {
+        pkg->status = PackageStatus::Incompatible;
+        pkg->statusText = "requires " + pkg->manifest.requiresUnknown + ", which this host doesn't know";
+    } else if (pkg->manifest.requiresGpuRuntime > 0) {
+        // The runtime is loaded before the scan; a module that needs it is never loaded without it.
+        const GpuRuntimeState& gpu = GpuRuntimeLoader::instance().state();
+        if (!gpu.ok()) {
+            pkg->status = PackageStatus::NeedsGpuRuntime;
+            pkg->statusText = GpuRuntimeLoader::instance().unavailableText();
+        } else if (gpu.abiVersion < static_cast<uint32_t>(pkg->manifest.requiresGpuRuntime)) {
+            pkg->status = PackageStatus::NeedsGpuRuntime;
+            pkg->statusText = "Needs GPU runtime ABI " + std::to_string(pkg->manifest.requiresGpuRuntime) +
+                              ", the installed one is " + std::to_string(gpu.abiVersion);
+        }
     }
 
     if (ModulePackage* dup = findPackage(pkg->manifest.id)) {
@@ -282,7 +301,8 @@ struct ExportCall {
 bool ModuleRegistry::ensureLoaded(ModulePackage& pkg) {
     if (pkg.loaded)
         return pkg.status == PackageStatus::Ok || pkg.status == PackageStatus::Faulted;
-    if (pkg.status == PackageStatus::IncompatibleAbi || pkg.status == PackageStatus::FailedToLoad)
+    if (pkg.status == PackageStatus::IncompatibleAbi || pkg.status == PackageStatus::FailedToLoad ||
+        pkg.status == PackageStatus::NeedsGpuRuntime || pkg.status == PackageStatus::Incompatible)
         return false;
 
     const fs::path dll = pkg.folder / pkg.manifest.dll;

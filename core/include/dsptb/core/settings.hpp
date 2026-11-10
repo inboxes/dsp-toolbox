@@ -27,8 +27,16 @@ struct Settings {
         int bufferFrames = 256;
     };
 
+    // GPU runtime (docs/GPU_RUNTIME.md section 6.3). Changes apply after a restart.
+    struct Gpu {
+        std::string runtimeDir;         // UTF-8; empty = <exe dir>/gpu-runtime
+        int device = 0;                 // CUDA device index
+        std::string sync = "blocking";  // "blocking" (sleeps while waiting for the GPU) or "spin"
+    };
+
     Window window;
     Audio audio;
+    Gpu gpu;
     bool micMonitorWarningShown = false; // the one-time "use headphones" warning
     bool micGateEnabled = false;         // microphone noise gate
     float micGateThresholdDb = -50.0f;

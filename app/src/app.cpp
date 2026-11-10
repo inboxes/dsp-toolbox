@@ -13,6 +13,7 @@
 #include <dsptb/branding.h>
 #include <dsptb/core/audio_io.hpp>
 #include <dsptb/core/audio_session.hpp>
+#include <dsptb/core/gpu_runtime_loader.hpp>
 #include <dsptb/core/logging.hpp>
 #include <dsptb/core/module_install.hpp>
 #include <dsptb/core/module_registry.hpp>
@@ -418,6 +419,17 @@ int run(HINSTANCE instance, const Options& opt) {
     shell.moduleFolders = {dsptb::modulesDir()};
     dsptb::applyPendingModuleInstalls(dsptb::modulesDir()); // before the scan, while no DLL is loaded
     warnAboutOldModulesFolder();
+    // The GPU runtime comes before the scan: its device flags must precede any CUDA context, and the scan gates
+    // modules that need it. A missing runtime is not an error.
+    dsptb::GpuRuntimeLoader::instance().load(dsptb::gpuRuntimeRequest(settings));
+    {
+        const dsptb::GpuRuntimeState& gpu = dsptb::GpuRuntimeLoader::instance().state();
+        // Not installed is normal: INFO. A runtime that is there but doesn't work is worth a warning.
+        if (gpu.ok() || !gpu.dllFound)
+            spdlog::info("{}", gpu.statusText);
+        else
+            spdlog::warn("{}", gpu.statusText);
+    }
     registry.scan(shell.moduleFolders);
     spdlog::info("Found {} module package(s)", registry.packages().size());
     // Created before the stream opens so its instances are prepared for whatever format the device gives us.
@@ -599,8 +611,8 @@ int run(HINSTANCE instance, const Options& opt) {
                 audio->setSource(dsptb::SourceKind::Mic, err);
             } else if (action == "gate") {
                 audio->engine().setMicGate(true, -50.0f);
-            } else if (action == "audio-settings") {
-                shell.showAudioSettings = true;
+            } else if (action == "audio-settings" || action == "settings:gpu") {
+                shell.showAudioSettings = true; // the GPU section is at the bottom of this window
             } else if (action == "about") {
                 shell.showAbout = true;
             } else if (action == "install-dialog") {
@@ -726,6 +738,7 @@ int run(HINSTANCE instance, const Options& opt) {
     shell.model = nullptr;
     model.reset(); // before the audio session: it points at the engine
     audio.reset(); // stops the audio stream before anything it logs to goes away
+    dsptb::GpuRuntimeLoader::instance().shutdown(); // every instance is gone
     CoUninitialize();
 
     ImGui_ImplDX11_Shutdown();

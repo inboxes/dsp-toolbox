@@ -26,6 +26,10 @@ struct ModuleManifest {
     std::string description;
     std::string homepage;
     std::string minHostVersion;
+    // "requires" (docs/GPU_RUNTIME.md section 9.1). gpuRuntime = the minimum GPU runtime ABI, 0 = not needed.
+    // requiresUnknown holds the first key this host doesn't know: such a package is Incompatible.
+    int requiresGpuRuntime = 0;
+    std::string requiresUnknown;
     // Optional per-parameter help text (param id -> sentence), shown as a tooltip beside the control.
     std::map<std::string, std::string> paramHelp;
 };

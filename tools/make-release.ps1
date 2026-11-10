@@ -84,6 +84,11 @@ $dirty = git status --porcelain --untracked-files=no
 if ($dirty -and -not $AllowDirty) { throw "Uncommitted changes:`n$($dirty -join "`n")" }
 
 $build = Join-Path $root "build/$Preset"
+# Releases come from a build without the GPU runtime, so a release can never depend on it by accident.
+$cache = Join-Path $build 'CMakeCache.txt'
+if ((Test-Path $cache) -and (Select-String -Path $cache -Pattern '^DSPTB_GPU_RUNTIME:BOOL=ON' -Quiet)) {
+    throw "$Preset was configured with DSPTB_GPU_RUNTIME=ON. The GPU runtime is dev-only: release from a preset without it."
+}
 $sofaBuild = Join-Path $root 'build/sofa-tool'
 $asioSdk = Join-Path $root 'third_party/asio-sdk/ASIOSDK'
 $triplet = 'x64-windows-static-md'
@@ -103,6 +108,11 @@ $dist = (Resolve-Path $OutDir).Path
 $stage = Join-Path $build 'stage'
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
 
+# The GPU runtime is dev-only (docs/GPU_RUNTIME.md section 8.3): refuse to zip anything of it.
+function Assert-NoGpu([string]$folder) {
+    Invoke-Checked powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-no-gpu.ps1 -Folder $folder
+}
+
 function Install-Component([string]$component, [string]$prefix) {
     Invoke-Checked cmake --install $build --component $component --prefix $prefix
 }
@@ -121,6 +131,7 @@ Write-Host 'Packaging:'
 foreach ($dir in $moduleDirs) {
     $s = Join-Path $stage "module/$($dir.Name)"
     Install-Component "module_$($dir.Name)" $s
+    Assert-NoGpu $s
     New-Zip $s (Join-Path $dist "$($dir.Name)-$Version.zip")
 }
 if ($Module) {
@@ -170,6 +181,7 @@ Install-Component app $app
 Copy-Item (Join-Path $sofaBuild 'dsptb-sofa.exe') $app
 Copy-Item $notices $app
 Invoke-Checked powershell -NoProfile -ExecutionPolicy Bypass -File tools/check-package.ps1 -BuildDir $build -Stage $app
+Assert-NoGpu $app
 New-Zip (Split-Path $app -Parent) (Join-Path $dist "$appName.zip")
 
 # --- SDK ---
@@ -177,6 +189,7 @@ $sdkName = "dsptb-sdk-$Version"
 $sdk = Join-Path $stage "sdk/$sdkName"
 Install-Component sdk $sdk
 Copy-Item $notices $sdk
+Assert-NoGpu $sdk
 New-Zip (Split-Path $sdk -Parent) (Join-Path $dist "$sdkName.zip")
 
 # --- Source: the committed tree plus the ASIO SDK files the build used (GPLv3 Corresponding Source) ---

@@ -39,13 +39,27 @@
       "displayName": "Release + audio-thread allocation guard",
       "inherits": "base",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "DSPTB_RT_GUARD": "ON" }
+    },
+    {
+      "name": "windows-release-gpu",
+      "displayName": "Windows Release with the GPU runtime (dev-only; needs an NVIDIA GPU to run its tests)",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "DSPTB_GPU_RUNTIME": "ON" }
+    },
+    {
+      "name": "rt-check-gpu",
+      "displayName": "Release + allocation guard + GPU runtime",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "DSPTB_RT_GUARD": "ON", "DSPTB_GPU_RUNTIME": "ON" }
     }
   ],
   "buildPresets": [
     { "name": "windows-debug", "configurePreset": "windows-debug" },
     { "name": "windows-release", "configurePreset": "windows-release" },
     { "name": "windows-release-asio", "configurePreset": "windows-release-asio" },
-    { "name": "rt-check", "configurePreset": "rt-check" }
+    { "name": "rt-check", "configurePreset": "rt-check" },
+    { "name": "windows-release-gpu", "configurePreset": "windows-release-gpu" },
+    { "name": "rt-check-gpu", "configurePreset": "rt-check-gpu" }
   ],
   "testPresets": [
     {
@@ -66,6 +80,16 @@
     {
       "name": "rt-check",
       "configurePreset": "rt-check",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "windows-release-gpu",
+      "configurePreset": "windows-release-gpu",
+      "output": { "outputOnFailure": true }
+    },
+    {
+      "name": "rt-check-gpu",
+      "configurePreset": "rt-check-gpu",
       "output": { "outputOnFailure": true }
     }
   ]

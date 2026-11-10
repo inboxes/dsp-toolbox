@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "id": "test.gpu-gated",
+  "name": "GPU gated (test)",
+  "version": "0.1.0",
+  "abi": 1,
+  "dll": "dsptb_test_gpu_gated.dll",
+  "modules": [{"id": "test.gpu-gated", "kind": "processor"}],
+  "requires": {"gpuRuntime": 1},
+  "author": "DSP Toolbox tests",
+  "license": "GPL-3.0-only",
+  "description": "Test fixture: needs the GPU runtime, ABI 1. Its DLL is never meant to run."
+}

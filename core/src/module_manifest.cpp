@@ -123,6 +123,23 @@ bool parseManifest(const std::string& jsonText, ModuleManifest& out, std::string
     out.description = str(j, "description");
     out.homepage = str(j, "homepage");
     out.minHostVersion = str(j, "minHostVersion");
+    if (auto it = j.find("requires"); it != j.end()) {
+        if (!it->is_object()) {
+            error = "\"requires\" must be an object";
+            return false;
+        }
+        for (const auto& [key, value] : it->items()) {
+            if (key == "gpuRuntime") {
+                if (!value.is_number_integer() || value.get<int>() < 1) {
+                    error = "requires.gpuRuntime must be an integer of at least 1";
+                    return false;
+                }
+                out.requiresGpuRuntime = value.get<int>();
+            } else if (out.requiresUnknown.empty()) {
+                out.requiresUnknown = key;
+            }
+        }
+    }
     if (j.contains("paramHelp") && j["paramHelp"].is_object())
         for (const auto& [key, value] : j["paramHelp"].items())
             if (value.is_string())
